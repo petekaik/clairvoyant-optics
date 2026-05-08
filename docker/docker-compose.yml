@@ -1,0 +1,47 @@
+# docker-compose.yml — Paikallinen kehitys/tuotanto
+# Aja: docker compose up -d
+#
+# Huom: Apple Silicon (arm64) vaatii native Docker Desktopin.
+# Docker Hubin kautta pyörivät image:t eivät toimi arm64:lla (platform mismatch).
+# Buildaa aina paikallisesti M1:llä.
+
+services:
+  clairvoyant:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: clairvoyant-optics
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    volumes:
+      # Mount models directory for hot-reloading models
+      - ../models:/app/models:ro
+      # Persist database between restarts
+      - clairvoyant-data:/app/data
+      # Debug output (optional)
+      - ../debug:/app/debug
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - clairvoyant-net
+
+  # Optional: MQTT broker if not using Home Assistant's Mosquitto addon
+  # mosquitto:
+  #   image: eclipse-mosquitto:2
+  #   container_name: mosquitto
+  #   ports:
+  #     - "1883:1883"
+  #   volumes:
+  #     - ./mosquitto/config:/mosquitto/config
+  #     - mosquitto-data:/mosquitto/data
+
+volumes:
+  clairvoyant-data:
+
+networks:
+  clairvoyant-net:
+    driver: bridge
