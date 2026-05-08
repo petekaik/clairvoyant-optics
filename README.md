@@ -91,28 +91,28 @@ Edit `.env` after copying from `.env.example`:
 
 ```ini
 # Camera 1 (front yard)
-CAM1_STREAM=http://192.168.1.20:8888/etupiha/index.m3u8
-CAM1_SNAP=https://192.168.1.131/snap.jpeg
-CAM1_NAME=etupiha
+CAM1_STREAM=http://192.168.1.100:8888/front-yard/index.m3u8
+CAM1_SNAP=https://192.168.1.101/snap.jpeg
+CAM1_NAME=front_yard
 
 # Camera 2 (backyard)
-CAM2_STREAM=http://192.168.1.20:8888/takapiha/index.m3u8
-CAM2_SNAP=https://192.168.1.125/snap.jpeg
-CAM2_NAME=takapiha
+CAM2_STREAM=http://192.168.1.100:8888/backyard/index.m3u8
+CAM2_SNAP=https://192.168.1.102/snap.jpeg
+CAM2_NAME=backyard
 
 # Add CAM3, CAM4, ... for additional cameras
 ```
 
 | Variable | Description | Example |
 |---|---|---|
-| `CAM*_STREAM` | HLS stream URL from MediaMTX | `http://192.168.1.20:8888/etupiha/index.m3u8` |
-| `CAM*_SNAP` | Snap JPEG URL from the camera (1080p preferred) | `https://192.168.1.131/snap.jpeg` |
-| `CAM*_NAME` | Friendly name for logging and MQTT topics | `etupiha` |
+| `CAM*_STREAM` | HLS stream URL from MediaMTX | `http://192.168.1.100:8888/front-yard/index.m3u8` |
+| `CAM*_SNAP` | Snap JPEG URL from the camera (1080p preferred) | `https://192.168.1.101/snap.jpeg` |
+| `CAM*_NAME` | Friendly name for logging and MQTT topics | `front_yard` |
 
 ### MQTT (Home Assistant)
 
 ```ini
-MQTT_BROKER=192.168.1.50
+MQTT_BROKER=192.168.1.100
 MQTT_PORT=1883
 MQTT_USERNAME=hass
 MQTT_PASSWORD=your_password_here
@@ -146,9 +146,9 @@ The pipeline publishes to these topics under the configured prefix (default `cla
 mqtt:
   sensor:
     - name: "Front Yard Person"
-      state_topic: "clairvoyant/etupiha/person"
+      state_topic: "clairvoyant/front_yard/person"
       value_template: "{{ value_json.name }}"
-      json_attributes_topic: "clairvoyant/etupiha/person"
+      json_attributes_topic: "clairvoyant/front_yard/person"
 ```
 
 ## Architecture
