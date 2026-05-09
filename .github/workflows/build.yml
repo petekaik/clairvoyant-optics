@@ -22,11 +22,13 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install -r requirements.txt
           pip install -e .
           pip install py2app
 
       - name: Download ML models
-        run: python download_models.py || echo "⚠ Models may be cached, continuing..."
+        run: |
+          python download_models.py --ci-mode 2>&1 || echo "⚠ Models may be cached, continuing..."
 
       - name: Set version
         id: version

@@ -8,6 +8,7 @@ Aja: python download_models.py
 
 import shutil
 import logging
+import sys
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -100,6 +101,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Lataa ML-mallit Clairvoyant-Optics:lle")
     parser.add_argument("--yolo-only", action="store_true", help="Lataa vain YOLO-malli")
     parser.add_argument("--insightface-only", action="store_true", help="Lataa vain InsightFace-mallit")
+    parser.add_argument("--ci-mode", action="store_true", help="CI-tila — älä exit errorilla")
     args = parser.parse_args()
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -108,14 +110,22 @@ def main() -> None:
 
     if not args.yolo_only:
         logger.info("=== InsightFace Models ===")
-        if download_insightface_models():
-            copy_insightface_models()
-        else:
+        try:
+            if download_insightface_models():
+                copy_insightface_models()
+            else:
+                success = False
+        except Exception as e:
+            logger.error(f"InsightFace download crashed: {e}")
             success = False
 
     if not args.insightface_only:
         logger.info("\n=== YOLO Model ===")
-        if not download_yolo_model():
+        try:
+            if not download_yolo_model():
+                success = False
+        except Exception as e:
+            logger.error(f"YOLO download crashed: {e}")
             success = False
 
     # Yhteenveto
@@ -128,8 +138,11 @@ def main() -> None:
 
     if success:
         logger.info("\n✅ All models downloaded successfully")
+    elif args.ci_mode:
+        logger.warning("\n⚠ Some models failed — continuing in CI mode")
     else:
         logger.warning("\n⚠ Some models failed — see errors above")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
