@@ -10,6 +10,9 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write   # Tarvitaan Release-luontiin
+      actions: read
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
