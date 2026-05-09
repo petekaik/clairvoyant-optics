@@ -49,6 +49,8 @@ class MenubarApp:
             f"Open Dashboard (:{self.web_port})",
         )
 
+        update_item = rumps.MenuItem("Check for Updates...")
+
         quit_item = rumps.MenuItem("Quit")
 
         class ClairvoyantApp(rumps.App):
@@ -94,6 +96,29 @@ class MenubarApp:
                 import webbrowser
                 webbrowser.open(f"http://localhost:{self_._web_port}")
 
+            def _check_updates(self, _):
+                try:
+                    from src.macos.updater import Updater, get_current_version
+                    updater = Updater(current_version=get_current_version())
+                    update = updater.check_for_update()
+                    if update:
+                        rumps.notification(
+                            "Update Available",
+                            f"Clairvoyant-Optics v{update['version']}",
+                            "Click to download",
+                        )
+                        import webbrowser
+                        webbrowser.open(update["url"])
+                    else:
+                        rumps.notification(
+                            "Up to Date",
+                            f"v{get_current_version()}",
+                            "No updates available",
+                        )
+                except Exception as e:
+                    logger.error(f"Update check failed: {e}")
+                    rumps.notification("Error", "Update check failed", str(e))
+
             def _quit(self, _):
                 logger.info("Quit from menubar")
                 if self_._pipeline and self_._pipeline._running:
@@ -104,11 +129,12 @@ class MenubarApp:
 
         toggle_item.set_callback(lambda s: s._toggle(s))
         web_item.set_callback(lambda s: s._open_dashboard(s))
+        update_item.set_callback(lambda s: s._check_updates(s))
         quit_item.set_callback(lambda s: s._quit(s))
 
         self._app = ClairvoyantApp(
             "Clairvoyant-Optics",
-            [status_item, None, toggle_item, web_item, None, quit_item],
+            [status_item, None, toggle_item, web_item, update_item, None, quit_item],
             self.pipeline,
             self.web_port,
             self._on_quit,

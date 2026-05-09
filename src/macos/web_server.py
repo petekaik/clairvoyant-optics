@@ -156,6 +156,54 @@ class WebServer:
 
             return JSONResponse({"camera": camera_name, "image": f"data:image/jpeg;base64,{b64}"})
 
+        @app.post("/api/test/notification/{camera_name}")
+        async def test_notification(camera_name: str):
+            """Lähetä testi-ilmoitus perheenjäsenestä ja palauta snap."""
+            if self.pipeline is None:
+                raise HTTPException(503, "Pipeline not initialized")
+
+            import base64, cv2
+
+            # Fetch snap if available
+            snap_b64 = None
+            cam = next((c for c in self.config.cameras if c.name == camera_name), None)
+            if cam and cam.snap_url:
+                snap = self.pipeline._fetch_snap(cam.snap_url)
+                if snap is not None:
+                    _, jpeg = cv2.imencode(".jpg", snap, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    snap_b64 = f"data:image/jpeg;base64,{base64.b64encode(jpeg.tobytes()).decode()}"
+
+            # Fire notification
+            if self.pipeline.notifier and self.pipeline.notifier.available:
+                self.pipeline.notifier.notify_family("TEST: Perheenjäsen", camera_name)
+                return JSONResponse({"ok": True, "snapshot": snap_b64})
+            else:
+                return JSONResponse({"ok": False, "error": "Notifications not available"}, status_code=400)
+
+        @app.post("/api/test/alert/{camera_name}")
+        async def test_alert(camera_name: str):
+            """Lähetä testihälytys vieraasta ja palauta snap."""
+            if self.pipeline is None:
+                raise HTTPException(503, "Pipeline not initialized")
+
+            import base64, cv2
+
+            # Fetch snap if available
+            snap_b64 = None
+            cam = next((c for c in self.config.cameras if c.name == camera_name), None)
+            if cam and cam.snap_url:
+                snap = self.pipeline._fetch_snap(cam.snap_url)
+                if snap is not None:
+                    _, jpeg = cv2.imencode(".jpg", snap, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    snap_b64 = f"data:image/jpeg;base64,{base64.b64encode(jpeg.tobytes()).decode()}"
+
+            # Fire alert
+            if self.pipeline.notifier and self.pipeline.notifier.available:
+                self.pipeline.notifier.notify_alert(camera_name)
+                return JSONResponse({"ok": True, "snapshot": snap_b64})
+            else:
+                return JSONResponse({"ok": False, "error": "Notifications not available"}, status_code=400)
+
         @app.post("/api/photos/import")
         async def import_from_photos(person_names: list[str] | None = None):
             """Tuo henkilöiden kasvogalleriat Photos.app:sta."""
@@ -213,6 +261,12 @@ class WebServer:
         .badge-yellow { background: #ffd60a; color: #000; }
         .btn { background: #0071e3; color: #fff; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; cursor: pointer; }
         .btn:hover { opacity: 0.9; }
+        .btn-green { background: #30d158; color: #000; margin-right: 8px; }
+        .btn-red { background: #ff375f; color: #fff; }
+        .snapshot { max-width: 100%; border-radius: 8px; margin-top: 12px; display: none; }
+        .test-row { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #2c2c2e; }
+        .test-row:last-child { border-bottom: none; }
+        .test-label { font-size: 13px; color: #8e8e93; margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -235,6 +289,10 @@ class WebServer:
             <h2>Actions</h2>
             <button class="btn" onclick="importPhotos()">Import from Photos.app</button>
         </div>
+        <div class="card">
+            <h2>Test Notifications</h2>
+            <div id="test-panel">Loading cameras...</div>
+        </div>
     </div>
     <script>
         async function load() {
@@ -251,6 +309,17 @@ class WebServer:
                 document.getElementById('faces').innerHTML = d.faces.map(f =>
                     '<li><span>' + f.name + '</span><span>' + f.samples + ' samples</span></li>'
                 ).join('') || '<li>No faces enrolled</li>';
+
+                // Build test panel
+                const testPanel = document.getElementById('test-panel');
+                testPanel.innerHTML = d.cameras.map(c => `
+                    <div class="test-row">
+                        <div class="test-label">${c.name}</div>
+                        <button class="btn btn-green" onclick="testNotification('${c.name}')">👤 Test Family</button>
+                        <button class="btn btn-red" onclick="testAlert('${c.name}')">⚠ Test Alert</button>
+                        <img class="snapshot" id="snap-${c.name}" />
+                    </div>
+                `).join('') || '<div class="test-label">No cameras configured</div>';
             } catch(e) {
                 document.getElementById('state').textContent = 'Error';
                 document.getElementById('subtitle').textContent = e.message;
@@ -272,6 +341,38 @@ class WebServer:
             }
         }
         
+        async function testNotification(name) {
+            const snap = document.getElementById('snap-' + name);
+            try {
+                const r = await fetch('/api/test/notification/' + name, { method: 'POST' });
+                const d = await r.json();
+                if (d.ok && d.snapshot) {
+                    snap.src = d.snapshot;
+                    snap.style.display = 'block';
+                } else {
+                    snap.style.display = 'none';
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        async function testAlert(name) {
+            const snap = document.getElementById('snap-' + name);
+            try {
+                const r = await fetch('/api/test/alert/' + name, { method: 'POST' });
+                const d = await r.json();
+                if (d.ok && d.snapshot) {
+                    snap.src = d.snapshot;
+                    snap.style.display = 'block';
+                } else {
+                    snap.style.display = 'none';
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
         load();
     </script>
 </body>
