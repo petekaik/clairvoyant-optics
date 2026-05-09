@@ -1,49 +1,53 @@
-# Clairvoyant-Optics
+# Clairvoyant-Optics v2
 
-**Privacy-first face recognition for home surveillance cameras.** Runs entirely on-device — no images, video, or personal data ever leave your local network.
-
-## Overview
-
-Clairvoyant-Optics identifies family members from surveillance camera feeds using a local ML pipeline optimized for Apple Silicon (M1+). It reads HLS video streams from MediaMTX, performs person detection on low-resolution frames, and triggers high-resolution face recognition only when a person is present — keeping resource usage minimal without sacrificing accuracy.
+**Your digital eye for macOS.** Monitors surveillance cameras in the background, recognizes family members from Photos.app face galleries, and sends native notifications — all running 100% locally on Apple Silicon.
 
 ```
-MediaMTX HLS (640×360) ──→ YOLOv8n Person Detect ──→ InsightFace Face Recognition ──→ MQTT ──→ Home Assistant
-       low-res stream            ONNX, 5-10ms               Snap JPEG 1080p, 20-40ms       paho-mqtt
+Surveillance Cameras ──→ YOLOv8n + InsightFace ──→ macOS Notifications
+      HLS/RTSP              M1 Neural Engine        Family = info
+                                                     Stranger = alert
 ```
 
-### Why HLS + Snap JPEG instead of direct RTSP?
+## What's New in v2
 
-- **HLS low-res stream**: continuous person detection at 640×360 using only 9% of the pixels of 1080p — fast and lightweight on the M1 Neural Engine
-- **Snap JPEG 1080p**: fetched on-demand only when a person is detected — provides full-resolution frames for accurate face recognition
-- **RTSPS between cameras and MediaMTX**: encrypted transport (SRTP), keeping the camera feed secure even on the wire
+- **🖥 macOS native** — No longer requires Home Assistant. Runs as a menubar app with native notifications.
+- **📸 Photos.app integration** — Imports face galleries directly from your macOS Photos library. Zero manual photo copying.
+- **🔔 Smart notifications** — Family members get a subtle notification. Strangers trigger an alert sound.
+- **🌐 Web dashboard** — Manage cameras, enrolled faces, and alerts at `http://localhost:8765`.
+- **🔌 Home Assistant optional** — MQTT support remains if you want HA integration.
+
+## How It Works
+
+1. **Continuous monitoring** — Reads HLS streams from your cameras (via MediaMTX or direct RTSP)
+2. **Person detection** — YOLOv8n on low-res frames (640×360), 5-10ms on M1 Neural Engine
+3. **Face recognition** — When a person is detected, fetches a 1080p snap JPEG and runs InsightFace/ArcFace
+4. **Match & notify** — Compares against enrolled family members. Known = gentle notification. Unknown = alert.
+5. **Photos.app sync** — Face galleries can be imported from Photos.app with one command
 
 ## Requirements
 
 | Component | Details |
 |---|---|
-| **Hardware** | MacBook Air M1 (or any Apple Silicon Mac) with 8+ GB RAM |
-| **Python** | 3.11+ |
-| **Streaming** | MediaMTX serving HLS + RTSPS streams from UniFi cameras |
-| **Smart Home** | Home Assistant with MQTT broker (Mosquitto) |
-| **Cameras** | Any RTSP-capable camera; tested with UniFi G3 |
+| **Hardware** | Mac with Apple Silicon (M1+) and 8+ GB RAM |
+| **OS** | macOS 14+ (Sonoma or newer) |
+| **Python** | 3.10+ |
+| **Cameras** | Any RTSP/HLS-capable camera. Tested with UniFi G3 + MediaMTX |
 
-## Installation
+## Quick Start
 
-### 1. Clone and set up
+### 1. Install
 
 ```bash
 git clone git@github.com:petekaik/clairvoyant-optics.git
 cd Clairvoyant-Optics
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
-### 2. Configure environment
+### 2. Configure
 
 ```bash
 cp .env.example .env
-# Edit .env with your actual values (see configuration table below)
+# Edit .env with your camera stream URLs
 ```
 
 ### 3. Download ML models
@@ -52,151 +56,117 @@ cp .env.example .env
 python download_models.py
 ```
 
-This downloads and exports:
-- **YOLOv8n** (12 MB ONNX) — person detection via Ultralytics
-- **InsightFace buffalo_l** — face detection (det_10g.onnx, 16 MB) + face recognition (w600k_r50.onnx, 166 MB)
+### 4. Import faces from Photos.app
 
-All models are stored in `models/` (gitignored).
+```bash
+clairvoyant import-from-photos
+```
 
-### 4. Enroll family members
+This reads your Photos.app person galleries and generates face embeddings. No images are copied — only the mathematical face vectors are stored locally.
 
-Create a folder for each family member with 5–10 photos showing their face from different angles and lighting conditions:
+If Photos.app images are iCloud-only, use manual enrollment instead:
 
 ```bash
 mkdir -p photos/alice
-# Copy photos to photos/alice/
-
-# Enroll
-python -m src.main --enroll "Alice" photos/alice/
-
-# List registered faces
-python -m src.main --list-faces
+# Copy 5-10 photos of Alice to photos/alice/
+clairvoyant enroll "Alice" photos/alice/
 ```
 
-**The `photos/` directory is gitignored — family photos are never committed to the repository.**
-
-### 5. Run the pipeline
+### 5. Start
 
 ```bash
-python -m src.main
+clairvoyant start
 ```
 
-The pipeline runs continuously, detecting persons from HLS streams and recognizing faces from snap JPEG images. Results are published to Home Assistant via MQTT.
+This launches the detection pipeline, menubar app, and web dashboard.
 
-## Configuration Reference
+## Commands
 
-Edit `.env` after copying from `.env.example`:
-
-### Cameras
-
-```ini
-# Camera 1 (front yard)
-CAM1_STREAM=http://192.168.1.100:8888/front-yard/index.m3u8
-CAM1_SNAP=https://192.168.1.101/snap.jpeg
-CAM1_NAME=front_yard
-
-# Camera 2 (backyard)
-CAM2_STREAM=http://192.168.1.100:8888/backyard/index.m3u8
-CAM2_SNAP=https://192.168.1.102/snap.jpeg
-CAM2_NAME=backyard
-
-# Add CAM3, CAM4, ... for additional cameras
-```
-
-| Variable | Description | Example |
-|---|---|---|
-| `CAM*_STREAM` | HLS stream URL from MediaMTX | `http://192.168.1.100:8888/front-yard/index.m3u8` |
-| `CAM*_SNAP` | Snap JPEG URL from the camera (1080p preferred) | `https://192.168.1.101/snap.jpeg` |
-| `CAM*_NAME` | Friendly name for logging and MQTT topics | `front_yard` |
-
-### MQTT (Home Assistant)
-
-```ini
-MQTT_BROKER=192.168.1.100
-MQTT_PORT=1883
-MQTT_USERNAME=hass
-MQTT_PASSWORD=your_password_here
-MQTT_TOPIC_PREFIX=clairvoyant
-```
-
-### Detection thresholds
-
-```ini
-PERSON_DETECT_CONFIDENCE=0.5    # YOLOv8n person class confidence
-FACE_DETECT_CONFIDENCE=0.7      # InsightFace detection confidence
-FACE_RECOGNITION_THRESHOLD=0.6  # Cosine similarity threshold for matching
-FRAME_INTERVAL=5                # Process every Nth HLS frame
-LOG_LEVEL=INFO                  # DEBUG, INFO, WARNING, ERROR
-```
-
-## MQTT Topics
-
-The pipeline publishes to these topics under the configured prefix (default `clairvoyant`):
-
-| Topic | Payload | When |
-|---|---|---|
-| `clairvoyant/status` | `online` / `offline` | Connection state (LWT) |
-| `clairvoyant/{camera}/person` | `{"name", "camera", "confidence", "timestamp"}` | Family member recognized |
-| `clairvoyant/{camera}/unknown` | `{"camera", "timestamp", "bbox"}` | Unknown person detected |
-| `clairvoyant/{camera}/person_gone` | `{"name", "camera", "timestamp"}` | Person left the frame |
-
-### Example Home Assistant sensor
-
-```yaml
-mqtt:
-  sensor:
-    - name: "Front Yard Person"
-      state_topic: "clairvoyant/front_yard/person"
-      value_template: "{{ value_json.name }}"
-      json_attributes_topic: "clairvoyant/front_yard/person"
-```
+| Command | Description |
+|---|---|
+| `clairvoyant start` | Start pipeline + menubar + web dashboard |
+| `clairvoyant serve` | Web dashboard only |
+| `clairvoyant enroll <name> <dir>` | Enroll a person from photos |
+| `clairvoyant import-from-photos` | Import all faces from Photos.app |
+| `clairvoyant import-from-photos --person "Alice" "Bob"` | Import specific persons |
+| `clairvoyant list-faces` | List enrolled faces |
 
 ## Architecture
 
 ```
 src/
-├── main.py              # Pipeline orchestrator: stream → detect → snap → recognize → MQTT
-├── config.py            # .env loader, typed dataclass configuration
-├── streams/
-│   └── hls_reader.py    # Background HLS stream reader with auto-reconnect
-├── detection/
-│   └── person_detector.py  # YOLOv8n ONNX/CoreML — person class filtering
-├── recognition/
-│   └── face_recognizer.py  # InsightFace + ArcFace face recognition, SQLite embedding DB
-├── integration/
-│   └── mqtt_notifier.py # paho-mqtt — person/unknown/person_gone events
-└── utils/
-    └── logging.py       # Structured logging setup
+├── cli.py              # CLI entry point (clairvoyant <command>)
+├── main.py             # Detection pipeline orchestrator
+├── config.py           # .env configuration loader
+├── streams/            # HLS/RTSP stream readers
+├── detection/          # YOLOv8n person detection
+├── recognition/        # InsightFace/ArcFace face recognition + SQLite DB
+├── integration/        # MQTT (optional, for Home Assistant)
+├── macos/              # macOS-specific components
+│   ├── photos_importer.py   # Photos.app face gallery import
+│   ├── notifier.py          # Native macOS notifications
+│   ├── menubar_app.py       # Menubar status + controls
+│   └── web_server.py        # FastAPI dashboard
+├── web/                # Web dashboard static files
+└── utils/              # Logging, helpers
 ```
-
-## Docker
-
-For containerized deployment:
-
-```bash
-docker compose -f docker/docker-compose.yml up -d
-```
-
-Note: Docker images must be built locally on Apple Silicon — pre-built x86_64 images won't run on M1.
-
-## Privacy & Security
-
-- **100% local inference** — all ML runs on the M1 Neural Engine; no cloud APIs, no images uploaded anywhere
-- **Encrypted camera links** — RTSPS between cameras and MediaMTX uses SRTP encryption
-- **Face embeddings stored locally** — SQLite database in `data/faces.db`, never transmitted
-- **No secrets in the repo** — `.env`, `models/*.onnx`, and `photos/` are all gitignored
-- **Suitable for households with children** — designed from the ground up with privacy as a hard requirement
 
 ## Performance (MacBook Air M1, 8 GB)
 
-| Component | Resolution | Inference Time | Freq | Load |
-|---|---|---|---|---|
-| YOLOv8n person-detect | 640×360 | ~5–10 ms | 2–3 fps | Minimal |
-| InsightFace face-detect | 1920×1080 | ~20–40 ms | On person detected | Rare |
-| ArcFace embedding | 224×224 | ~10–20 ms | On person detected | Rare |
-| **Total RAM** | | | | **~500–800 MB** |
+| Component | Resolution | Inference | Load |
+|---|---|---|---|
+| YOLOv8n person detect | 640×360 | 5-10 ms | ~5% Neural Engine |
+| InsightFace face detect | 1920×1080 | 20-40 ms | ~15% Neural Engine |
+| ArcFace embedding | 224×224 | 10-20 ms | Rare |
+| **Total RAM** | | | **~500-800 MB** |
 
-With two cameras active, CPU load stays around 15–25%.
+With 2 cameras active, CPU load stays around 15-25%.
+
+## Configuration Reference
+
+```ini
+# Cameras (CAM1, CAM2, ..., CAM9)
+CAM1_STREAM=http://192.168.1.100:8888/front-yard/index.m3u8
+CAM1_SNAP=https://192.168.1.101/snap.jpeg
+CAM1_NAME=front_yard
+
+# MQTT (optional — Home Assistant)
+# Leave MQTT_BROKER empty to run without HA
+MQTT_BROKER=
+MQTT_PORT=1883
+MQTT_USERNAME=
+MQTT_PASSWORD=
+
+# Detection thresholds
+PERSON_DETECT_CONFIDENCE=0.5
+FACE_DETECT_CONFIDENCE=0.7
+FACE_RECOGNITION_THRESHOLD=0.6
+FRAME_INTERVAL=5
+
+# Notifications
+NOTIFICATION_SOUND_FAMILY=default   # macOS sound for family
+NOTIFICATION_SOUND_ALERT=alarm      # macOS sound for strangers
+# NOTIFICATION_DND_START=22:00      # Do Not Disturb start (optional)
+# NOTIFICATION_DND_END=07:00        # Do Not Disturb end (optional)
+
+# Web dashboard
+WEB_UI_PORT=8765
+WEB_UI_HOST=127.0.0.1
+```
+
+## Known Limitations
+
+- **Photos.app iCloud** — If "Optimize Mac Storage" is enabled, most photos are iCloud-only and cannot be used for face import. Use manual enrollment or download originals to your Mac.
+- **Self-signed camera certs** — Snap JPEG endpoints with self-signed certificates work but require `verify=False`.
+- **Menubar app** requires `rumps` (macOS-only, included in requirements).
+
+## Privacy & Security
+
+- **100% local inference** — All ML runs on the M1 Neural Engine. No cloud APIs, no images uploaded anywhere.
+- **Encrypted camera links** — Use RTSPS between cameras and MediaMTX for encrypted transport.
+- **Face embeddings stored locally** — SQLite database in `data/faces.db`, never transmitted.
+- **No secrets in the repo** — `.env`, `models/*.onnx`, and `photos/` are all gitignored.
+- **Suitable for households with children** — Designed from the ground up with privacy as a hard requirement.
 
 ## License
 

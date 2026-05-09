@@ -54,3 +54,6 @@ htmlcov/
 # Perheenjäsenten valokuvat (yksityisiä)
 photos/
 
+# Runtime data (SQLite DB)
+data/
+

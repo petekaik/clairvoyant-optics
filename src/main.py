@@ -5,7 +5,7 @@ Arkkitehtuuri:
 2. Henkilötunnistus (YOLOv8n) jokaisesta framesta
 3. Jos henkilö havaittu → hae snap JPEG kameralta (1080p)
 4. Kasvojentunnistus (InsightFace) snap-kuvasta
-5. Lähetä tulos MQTT:lla Home Assistantiin
+5. Lähetä tulos: macOS-notifikaatio + valinnainen MQTT
 """
 
 import logging
@@ -61,7 +61,7 @@ class DetectionPipeline:
             logger.warning("Person detection only — face recognition disabled")
             self.face_recognizer = None
 
-        # MQTT
+        # MQTT (valinnainen)
         self.mqtt = MQTTNotifier(
             broker=config.mqtt.broker,
             port=config.mqtt.port,
@@ -69,7 +69,20 @@ class DetectionPipeline:
             password=config.mqtt.password,
             topic_prefix=config.mqtt.topic_prefix,
         )
-        self.mqtt.connect()
+        if config.mqtt.broker:
+            self.mqtt.connect()
+        else:
+            logger.info("No MQTT broker configured — notifications only")
+
+        # macOS notifications
+        self.notifier = None
+        try:
+            from src.macos.notifier import MacNotifier
+            self.notifier = MacNotifier()
+            if self.notifier.available:
+                logger.info("macOS notifications enabled")
+        except ImportError:
+            pass
 
         # Stream readerit per kamera
         self.streams: dict[str, HLSStreamReader] = {}
@@ -127,7 +140,8 @@ class DetectionPipeline:
         self._running = False
         for stream in self.streams.values():
             stream.stop()
-        self.mqtt.disconnect()
+        if self.config.mqtt.broker:
+            self.mqtt.disconnect()
         self.face_db.close()
         logger.info("Pipeline stopped")
 
@@ -193,6 +207,8 @@ class DetectionPipeline:
                     self.mqtt.notify_unknown_person(
                         cam.name, result["bbox"]
                     )
+                    if self.notifier and self.notifier.available:
+                        self.notifier.notify_alert(cam.name)
                     continue
 
                 # Debounce check
@@ -204,6 +220,8 @@ class DetectionPipeline:
 
                 self._last_detection[key] = now
                 self.mqtt.notify_person_detected(name, cam.name, conf)
+                if self.notifier and self.notifier.available:
+                    self.notifier.notify_family(name, cam.name, conf)
 
             # Piirrä bounding boxit debug-kuvaan (valinnainen)
             self._draw_debug(snap_frame, face_results, cam.name)
