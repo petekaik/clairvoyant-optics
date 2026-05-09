@@ -2,9 +2,11 @@
 
 ## In Progress
 
-- **Virheraportointi → GitHub Issues:** Sovelluksen käsittelemättömät poikkeukset ja kriittiset virheet raportoidaan automaattisesti GitHub-repon issue-listalle. Sisältää stack tracen ja ympäristötiedot (redacted).
-
 - **Auto-DevOps-silmukka:** Versioiva agentti + Hermes cron -job, joka pollaa GitHub-repon avoimia vikoja, validoi ne ja käynnistää automaattiset korjaukset. Täysi Continuous Development/Testing/Monitoring -silmukka asennettujen sovellusten ja GitHubin välillä.
+
+## Done (v2.2.0)
+
+- ✅ **Virheraportointi → GitHub Issues** — `src/macos/error_reporter.py`: kaappaa käsittelemättömät poikkeukset ja luo automaattisesti GitHub Issue -lipun stack tracella, järjestelmätiedoilla ja redaktoiduilla ympäristömuuttujilla. Sisältää deduplikoinnin (`auto-reported` + `bug` -labelit).
 
 ## Done (v2.1.0)
 

@@ -20,7 +20,7 @@ DATA_FILES = []
 OPTIONS = {
     "argv_emulation": False,
     "packages": [
-        "rumps", "cv2", "numpy", "requests", "sqlite3",
+        "rumps", "cv2", "numpy", "requests",
         "insightface", "onnxruntime", "ultralytics",
         "fastapi", "uvicorn", "macos_notifications",
         "osxphotos",
@@ -43,8 +43,12 @@ OPTIONS = {
         "LSUIElement": True,  # Menubar-only, ei Dock-kuvaketta
         "NSHighResolutionCapable": True,
     },
-    "iconfile": "assets/icon.icns" if Path("assets/icon.icns").exists() else None,
 }
+
+# Iconfile vain jos tiedosto on olemassa
+icon_path = Path("assets/icon.icns")
+if icon_path.exists() and icon_path.stat().st_size > 100:
+    OPTIONS["iconfile"] = "assets/icon.icns"
 
 setup(
     name="Clairvoyant-Optics",

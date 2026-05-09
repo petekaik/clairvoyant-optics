@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -22,10 +24,9 @@ jobs:
         run: |
           pip install -e .
           pip install py2app
-          brew install create-dmg 2>/dev/null || true
 
       - name: Download ML models
-        run: python download_models.py || echo "Models may be cached"
+        run: python download_models.py || echo "⚠ Models may be cached, continuing..."
 
       - name: Set version
         id: version
@@ -47,12 +48,12 @@ jobs:
         run: |
           APP="dist/Clairvoyant-Optics.app"
           DMG="dist/Clairvoyant-Optics-${{ steps.version.outputs.version }}.dmg"
-          if command -v create-dmg &>/dev/null; then
-            create-dmg --volname "Clairvoyant-Optics" "$DMG" "$APP" || \
-            hdiutil create -volname "Clairvoyant-Optics" -srcfolder dist -ov -format UDZO "$DMG"
-          else
-            hdiutil create -volname "Clairvoyant-Optics" -srcfolder dist -ov -format UDZO "$DMG"
+          if [ ! -d "$APP" ]; then
+            echo "ERROR: .app not built!"
+            exit 1
           fi
+          # Use hdiutil directly (built-in macOS, no brew needed)
+          hdiutil create -volname "Clairvoyant-Optics" -srcfolder dist -ov -format UDZO "$DMG"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4

@@ -2,6 +2,17 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [2.2.0] — 2026-05-10
+
+### Added
+- **Error reporting to GitHub Issues** — `src/macos/error_reporter.py`: catches unhandled exceptions, deduplicates them, and auto-creates GitHub Issues with stack trace, system info, and redacted environment variables. Install with `install_error_reporter()` in main entry point.
+- **Auto-DevOps loop** — `scripts/devops-loop.py`: scheduled via Hermes cron, monitors GitHub CI status, detects unpushed commits, and reports on build health. Foundation for autonomous CI/CD self-healing.
+
+### Fixed
+- **Build pipeline** — `pyproject.toml` had wrong backend (`setuptools.backends._legacy:_Backend` → `setuptools.build_meta`), causing `pip install -e .` to fail and CI to crash with exit code 2.
+- **CI workflow** — removed `brew install create-dmg` dependency (unreliable on GitHub Actions runners), switched to built-in `hdiutil`. Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to resolve Node.js 20 deprecation warnings.
+- **`setup.py`** — removed `sqlite3` from packages list (stdlib, not a pip package); fixed iconfile handling for absent `icon.icns`.
+
 ## [2.1.0] — 2026-05-10
 
 ### Added
