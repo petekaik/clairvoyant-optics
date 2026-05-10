@@ -22,7 +22,6 @@ Pillow>=10.2.0
 osxphotos>=0.70.0
 macos-notifications>=0.2.0
 rumps>=0.4.0
-pywebview>=5.0
 
 # Web dashboard
 fastapi>=0.100.0

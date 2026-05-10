@@ -69,7 +69,7 @@ jobs:
             --hidden-import rumps \
             --hidden-import macos_notifications \
             --hidden-import osxphotos \
-            --hidden-import webview \
+            --hidden-import tkinter \
             --hidden-import src.macos.battery_optimizer \
             src/macos/menubar_app.py
 
