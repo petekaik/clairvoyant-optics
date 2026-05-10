@@ -1,35 +1,48 @@
-"""macOS Menubar + natiivi ikkuna — näkyy Dockissa ja menubarissa.
+"""macOS Natiivisovellus — Dock-ikkuna + valikkorivi.
 
 Arkkitehtuuri:
-- rumps: menubar-kuvake ja kontrollit
 - tkinter: macOS-natiivikäyttöliittymä (Cocoa-pohjainen, tulee Pythonin mukana)
-- FastAPI: REST API taustalla, data haetaan fetch-pyynnöillä
-- LSUIElement ei vaadita — tkinter-ikkunat näkyvät Dockissa automaattisesti
+- tkinter.Menu: natiivi valikkorivi (ei rumps-riippuvuutta)
+- FastAPI: REST API taustalla, UI pollaa sitä
+- Kaikki ajetaan tkinterin mainloopissa pääsäikeessä — ei säieristiriitoja
 
 Käyttökokemus:
 - Ikkuna aukeaa heti käynnistyessä — näyttää reaaliaikaisen tilan
-- Sulje-painike (×) piilottaa ikkunan, sovellus jää menubariin
-- "Show Window" menubarissa palauttaa ikkunan näkyviin
-- "Quit" sulkee koko sovelluksen
+- Sulje-painike (×) piilottaa ikkunan, sovellus jää Dockiin
+- Valikkoriviltä: kontrollit, päivitykset, asetukset
+- Cmd+Q tai Quit-valikosta sulkee koko sovelluksen
 """
 
 import json
 import logging
+import os
+import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk
 import time
 import urllib.request
 import webbrowser
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_HAS_RUMPS = False
-try:
-    import rumps
-    _HAS_RUMPS = True
-except ImportError:
-    pass
+
+# ═══════════════════════════════════════════════════════════
+# Apufunktiot
+# ═══════════════════════════════════════════════════════════
+
+def _notify(title: str, subtitle: str = "", message: str = ""):
+    """Lähetä macOS-ilmoitus (ei riippuvuuksia)."""
+    try:
+        script = (
+            f'display notification "{message}"'
+            f' with title "{title}"'
+            f' subtitle "{subtitle}"'
+        )
+        subprocess.run(["osascript", "-e", script], timeout=3, capture_output=True)
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════
@@ -39,12 +52,9 @@ except ImportError:
 class StatusWindow:
     """Pääikkuna — sovelluksen reaaliaikainen tila."""
 
-    def __init__(self, api_base: str, on_close_callback=None):
-        import tkinter as tk
-        from tkinter import ttk
-
+    def __init__(self, api_base: str, toggle_callback=None):
         self._api_base = api_base
-        self._on_close_callback = on_close_callback
+        self._toggle_callback = toggle_callback
         self._running = False
 
         self._root = tk.Tk()
@@ -100,15 +110,15 @@ class StatusWindow:
         self._state_value = self._mk_card(grid, 0, 0, "STATUS", "—", subtitle="Loading...")
 
         # Power & Network -kortti
-        power_card, self._power_icon, self._power_label, self._power_wifi, self._power_reason = (
+        _, self._power_icon, self._power_label, self._power_wifi, self._power_reason = (
             self._mk_power_card(grid, 0, 1)
         )
 
         # Cameras-kortti
-        cam_card, self._cam_list = self._mk_scroll_card(grid, 1, 0, "CAMERAS")
+        _, self._cam_list = self._mk_scroll_card(grid, 1, 0, "CAMERAS")
 
         # Faces-kortti
-        face_card, self._face_list = self._mk_scroll_card(grid, 1, 1, "FACES ENROLLED")
+        _, self._face_list = self._mk_scroll_card(grid, 1, 1, "FACES ENROLLED")
 
         # Telemetry-kortti
         self._telemetry_frame, self._tele_auto, self._tele_error = self._mk_card_two_lines(
@@ -138,7 +148,6 @@ class StatusWindow:
     # ── Card builders ───────────────────────────────────────
 
     def _mk_card(self, parent, row, col, title, value, subtitle=""):
-        """Luo tilastokortin: otsikko + iso arvo + alaotsikko."""
         frame = self._mk_card_frame(parent, row, col, title)
         val = tk.Label(
             frame, text=value,
@@ -156,7 +165,6 @@ class StatusWindow:
         return val, sub
 
     def _mk_power_card(self, parent, row, col):
-        """Luo Power & Network -kortin ikonilla ja wifi-tiedoilla."""
         frame = self._mk_card_frame(parent, row, col, "POWER & NETWORK")
         icon = tk.Label(
             frame, text="—",
@@ -189,9 +197,6 @@ class StatusWindow:
         return frame, icon, label, wifi, reason
 
     def _mk_scroll_card(self, parent, row, col, title):
-        """Luo scrollattavan listakortin."""
-        import tkinter as tk
-
         frame = self._mk_card_frame(parent, row, col, title)
 
         canvas = tk.Canvas(frame, bg="#1c1c1e", highlightthickness=0, height=120)
@@ -208,7 +213,6 @@ class StatusWindow:
         return frame, list_frame
 
     def _mk_card_two_lines(self, parent, row, col, title, line1, line2):
-        """Luo kortin jossa kaksi riviä tekstiä."""
         frame = self._mk_card_frame(parent, row, col, title)
 
         l1 = tk.Label(
@@ -227,9 +231,6 @@ class StatusWindow:
         return frame, l1, l2
 
     def _mk_card_frame(self, parent, row, col, title):
-        """Luo kortin taustakehyksen."""
-        import tkinter as tk
-
         frame = tk.Frame(parent, bg="#1c1c1e", highlightbackground="#2c2c2e",
                          highlightthickness=1)
         frame.grid(row=row, column=col, sticky="nsew", padx=6, pady=6, ipadx=16, ipady=16)
@@ -243,9 +244,6 @@ class StatusWindow:
         return frame
 
     def _mk_btn(self, parent, text, cmd, bg="#0071e3", fg="#ffffff"):
-        """Luo macOS-tyylinen nappi."""
-        import tkinter as tk
-
         btn = tk.Button(
             parent, text=text, command=cmd,
             font=("SF Pro Text", 12),
@@ -254,20 +252,11 @@ class StatusWindow:
             cursor="pointinghand",
         )
         btn.pack(side="left", padx=(0, 8), pady=(0, 0))
-
-        def on_enter(e):
-            btn.configure(brightness=0.9) if False else None
-        def on_leave(e):
-            pass
-
-        btn.bind("<Enter>", on_enter)
-        btn.bind("<Leave>", on_leave)
         return btn
 
     # ── API-fetch ───────────────────────────────────────────
 
     def _fetch(self, path: str) -> dict | list:
-        """Hae dataa API:lta."""
         try:
             url = f"{self._api_base}{path}"
             req = urllib.request.Request(url, headers={"User-Agent": "Clairvoyant-Optics-UI"})
@@ -327,17 +316,17 @@ class StatusWindow:
             for w in self._cam_list.winfo_children():
                 w.destroy()
             for cam in cameras:
-                row = __import__("tkinter").Frame(self._cam_list, bg="#1c1c1e")
+                row = tk.Frame(self._cam_list, bg="#1c1c1e")
                 row.pack(fill="x", pady=3)
-                __import__("tkinter").Label(
+                tk.Label(
                     row, text=cam["name"], font=("SF Pro Text", 12),
                     fg="#ffffff", bg="#1c1c1e",
                 ).pack(side="left")
                 badge_color = "#30d158" if cam.get("active") else "#ffd60a"
                 badge_text = "active" if cam.get("active") else "inactive"
-                __import__("tkinter").Label(
+                tk.Label(
                     row, text=badge_text, font=("SF Pro Text", 10, "bold"),
-                    fg="#000000" if cam.get("active") else "#000000",
+                    fg="#000000",
                     bg=badge_color, padx=8, pady=1,
                 ).pack(side="right")
 
@@ -346,13 +335,13 @@ class StatusWindow:
             for w in self._face_list.winfo_children():
                 w.destroy()
             for f in faces:
-                row = __import__("tkinter").Frame(self._face_list, bg="#1c1c1e")
+                row = tk.Frame(self._face_list, bg="#1c1c1e")
                 row.pack(fill="x", pady=3)
-                __import__("tkinter").Label(
+                tk.Label(
                     row, text=f["name"], font=("SF Pro Text", 12),
                     fg="#ffffff", bg="#1c1c1e",
                 ).pack(side="left")
-                __import__("tkinter").Label(
+                tk.Label(
                     row, text=f"{f.get('samples', 0)} samples",
                     font=("SF Pro Text", 12), fg="#8e8e93", bg="#1c1c1e",
                 ).pack(side="right")
@@ -379,18 +368,9 @@ class StatusWindow:
     # ── Toiminnot ───────────────────────────────────────────
 
     def _action_toggle(self):
-        """Käynnistä/pysäytä pipeline."""
-        try:
-            data = self._fetch("/api/status")
-            state = data.get("state", "")
-            if state == "running":
-                # Pysäytä — hae snapshot ennen stopia
-                self._fetch("/api/status")  # keep-alive
-                logger.info("Stop requested from UI")
-            else:
-                logger.info("Start requested from UI")
-        except Exception as e:
-            logger.error(f"Toggle failed: {e}")
+        """Käynnistä/pysäytä pipeline — delegoi App:lle."""
+        if self._toggle_callback:
+            self._toggle_callback()
 
     def _action_import_photos(self):
         """Tuo kasvokuvia Photos.app:sta."""
@@ -407,8 +387,10 @@ class StatusWindow:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode())
                 logger.info(f"Import result: {result}")
+                _notify("Import Complete", f"Imported photos", str(result.get("imported", 0)))
         except Exception as e:
             logger.error(f"Import failed: {e}")
+            _notify("Import Failed", str(e), "")
 
     def _action_check_updates(self):
         """Tarkista päivitykset manuaalisesti."""
@@ -417,16 +399,14 @@ class StatusWindow:
             updater = Updater(current_version=get_current_version())
             update = updater.check_for_update()
             if update:
-                if _HAS_RUMPS:
-                    rumps.notification(
-                        "Update Available",
-                        f"Clairvoyant-Optics v{update['version']}",
-                        "Click to download",
-                    )
+                _notify(
+                    "Update Available",
+                    f"Clairvoyant-Optics v{update['version']}",
+                    "Click to download",
+                )
                 webbrowser.open(update["url"])
             else:
-                if _HAS_RUMPS:
-                    rumps.notification("Up to Date", f"v{get_current_version()}", "")
+                _notify("Up to Date", f"v{get_current_version()}", "")
         except Exception as e:
             logger.error(f"Update check failed: {e}")
 
@@ -453,127 +433,176 @@ class StatusWindow:
 
 
 # ═══════════════════════════════════════════════════════════
-# Rumps Menubar Controller
+# App — pääsovellus
 # ═══════════════════════════════════════════════════════════
 
-class _MenubarController(rumps.App if _HAS_RUMPS else object):
-    """Rumps-menubar-sovellus — pikakontrollit."""
+class App:
+    """Clairvoyant-Optics — macOS-natiivisovellus (Dock + valikkorivi)."""
 
-    def __init__(self_, title, menu, pipeline, web_port, on_quit, config, window):
-        super().__init__(title, menu=menu, quit_button=None)
-        self_._menu_status = menu[0]
-        self_._menu_toggle = menu[2]
-        self_._menu_show = menu[3]
-        self_._menu_auto_update = menu[7]
-        self_._menu_error_rpt = menu[9]
-        self_._pipeline = pipeline
-        self_._web_port = web_port
-        self_._on_quit = on_quit
-        self_._config = config
-        self_._window = window
-        self_._last_update_notified: str = ""
+    def __init__(
+        self,
+        pipeline=None,
+        config=None,
+        web_port: int = 8765,
+        on_quit: callable = None,
+    ):
+        self.pipeline = pipeline
+        self.config = config
+        self.web_port = web_port
+        self._on_quit = on_quit
+        self._window = None
+        self._updater = None
+        # Valikkorivin toggle-labelit (päivitetään tilan mukaan)
+        self._menu_auto_update_idx = None
+        self._menu_error_rpt_idx = None
+        self._auto_update_menu = None
 
-    @rumps.timer(5)
-    def _update_title(self_, _):
-        if self_._pipeline and self_._pipeline._running:
-            self_.title = "👁"
-        else:
-            self_.title = "⏸"
+    def run(self):
+        """Käynnistä sovellus — natiivi-ikkuna + valikkorivi."""
+        api_base = f"http://127.0.0.1:{self.web_port}"
 
-    @rumps.timer(3)
-    def _update_status(self_, _):
-        opt = self_._pipeline.optimizer if self_._pipeline else None
-        if self_._pipeline and self_._pipeline._running:
-            cam_count = len(self_._pipeline.streams)
-            face_count = len(self_._pipeline.face_db.get_all_faces())
-            extra = ""
-            if opt:
-                bat = opt._last_battery_pct
-                ssid = opt._last_ssid
-                parts = []
-                if bat is not None:
-                    parts.append(f"{'🔌' if opt.is_on_power else '🔋'} {bat}%")
-                if ssid:
-                    parts.append(f"📶 {ssid}")
-                if parts:
-                    extra = " · " + " ".join(parts)
-            self_._menu_status.title = f"Status: {cam_count} cameras · {face_count} faces{extra}"
-            self_._menu_toggle.title = "⏸ Pause"
-        elif self_._pipeline and not self_._pipeline._running:
-            reason = ""
-            if opt and opt.suspended_reason:
-                reason = f" ({opt.suspended_reason})"
-            self_._menu_status.title = f"Status: Paused{reason}"
-            self_._menu_toggle.title = "▶ Start"
-        else:
-            self_._menu_status.title = "Status: Idle"
-            self_._menu_toggle.title = "▶ Start"
+        # 1. Luo natiivi-ikkuna (tkinter)
+        self._window = StatusWindow(api_base, toggle_callback=self._toggle_pipeline)
 
-        if self_._config:
-            self_._menu_auto_update.title = (
-                "Auto-Update: ✅ ON" if self_._config.auto_update
-                else "Auto-Update: ❌ OFF"
-            )
-            self_._menu_error_rpt.title = (
-                "Error Reporting: ✅ ON" if self_._config.error_reporting
-                else "Error Reporting: ❌ OFF"
-            )
+        # 2. Rakenna natiivi valikkorivi
+        self._setup_menu()
 
-    def _toggle(self_, _):
-        if self_._pipeline is None:
+        # 3. Näytä ikkuna
+        self._window.show()
+
+        # 4. Automaattipäivitys (opt-in)
+        if self.config and self.config.auto_update:
+            self._start_auto_updater()
+
+        # 5. Tkinter mainloop (blokkaava)
+        try:
+            self._window._root.mainloop()
+        except KeyboardInterrupt:
+            pass
+
+        # Siivous
+        self._do_quit()
+
+    def _setup_menu(self):
+        """Luo macOS-natiivi valikkorivi tkinter.Menu:lla."""
+        root = self._window._root
+        menubar = tk.Menu(root)
+
+        # ── Sovellusvalikko (näkyy sovelluksen nimellä macOS:ssa) ──
+        app_menu = tk.Menu(menubar, tearoff=0)
+        app_menu.add_command(label="About Clairvoyant-Optics", command=self._about)
+        app_menu.add_separator()
+        app_menu.add_command(label=f"Quit Clairvoyant-Optics", command=self._quit_app,
+                             accelerator="Cmd+Q")
+        # macOS: eka cascade jossa label = app-nimi → Apple-menu
+        menubar.add_cascade(label="Clairvoyant-Optics", menu=app_menu)
+
+        # ── Kontrollit ──
+        ctrl_menu = tk.Menu(menubar, tearoff=0)
+        ctrl_menu.add_command(label="Start/Pause Pipeline", command=self._toggle_pipeline)
+        ctrl_menu.add_separator()
+        ctrl_menu.add_command(label="Show Window", command=self._window.show)
+        ctrl_menu.add_command(label="Open in Browser",
+                              command=lambda: webbrowser.open(f"http://localhost:{self.web_port}"))
+        menubar.add_cascade(label="Controls", menu=ctrl_menu)
+
+        # ── Päivitykset ──
+        self._auto_update_menu = tk.Menu(menubar, tearoff=0)
+        self._auto_update_menu.add_command(label="Check for Updates...", command=self._check_updates)
+        self._auto_update_menu.add_separator()
+
+        au_label = "Auto-Update: " + ("✅ ON" if self.config and self.config.auto_update else "❌ OFF")
+        er_label = "Error Reporting: " + ("✅ ON" if self.config and self.config.error_reporting else "❌ OFF")
+
+        self._auto_update_menu.add_command(label=au_label, command=self._toggle_auto_update)
+        self._auto_update_menu.add_command(label=er_label, command=self._toggle_error_reporting)
+
+        # Tallennetaan indeksit label-päivityksiä varten
+        self._menu_auto_update_idx = 2  # 0=Check, 1=---, 2=auto-update toggle
+        self._menu_error_rpt_idx = 3
+
+        menubar.add_cascade(label="Updates", menu=self._auto_update_menu)
+
+        root.config(menu=menubar)
+
+    def _about(self):
+        """Näytä About-info."""
+        try:
+            from src.version import VERSION
+            ver = VERSION
+        except Exception:
+            ver = "?"
+        _notify("Clairvoyant-Optics", f"v{ver}", "macOS face recognition pipeline")
+
+    # ── Pipeline ────────────────────────────────────────────
+
+    def _toggle_pipeline(self):
+        """Käynnistä/pysäytä pipeline."""
+        if self.pipeline is None:
             return
-        if self_._pipeline._running:
-            self_._pipeline.stop()
+        if self.pipeline._running:
+            logger.info("Stopping pipeline from menu")
+            self.pipeline.stop()
+            _notify("Pipeline", "Stopped", "")
         else:
-            self_._pipeline.optimizer._manual_override = True
-            t = threading.Thread(target=self_._pipeline.start, daemon=True)
+            logger.info("Starting pipeline from menu")
+            if hasattr(self.pipeline, 'optimizer') and self.pipeline.optimizer:
+                self.pipeline.optimizer._manual_override = True
+            t = threading.Thread(target=self.pipeline.start, daemon=True)
             t.start()
+            _notify("Pipeline", "Starting...", "")
 
-    def _show_window(self_, _):
-        self_._window.show()
+    # ── Päivitykset ─────────────────────────────────────────
 
-    def _open_dashboard(self_, _):
-        webbrowser.open(f"http://localhost:{self_._web_port}")
-
-    def _check_updates(self_, _):
+    def _check_updates(self):
+        """Tarkista päivitykset (valikkoriviltä)."""
         try:
             from src.macos.updater import Updater, get_current_version
             updater = Updater(current_version=get_current_version())
             update = updater.check_for_update()
             if update:
-                rumps.notification(
+                _notify(
                     "Update Available",
                     f"Clairvoyant-Optics v{update['version']}",
                     "Click to download",
                 )
                 webbrowser.open(update["url"])
             else:
-                rumps.notification("Up to Date", f"v{get_current_version()}", "")
+                _notify("Up to Date", f"v{get_current_version()}", "")
         except Exception as e:
             logger.error(f"Update check failed: {e}")
 
-    def _toggle_auto_update(self_, _):
-        if not self_._config:
+    def _toggle_auto_update(self):
+        """Vaihda auto-update päälle/pois."""
+        if not self.config:
             return
-        self_._config.auto_update = not self_._config.auto_update
-        self_._persist_env("AUTO_UPDATE", "true" if self_._config.auto_update else "false")
-        status = "✅ ON" if self_._config.auto_update else "❌ OFF"
-        rumps.notification("Settings", f"Auto-Update: {status}", "")
+        self.config.auto_update = not self.config.auto_update
+        self._persist_env("AUTO_UPDATE", "true" if self.config.auto_update else "false")
+        new_label = "Auto-Update: " + ("✅ ON" if self.config.auto_update else "❌ OFF")
+        self._auto_update_menu.entryconfigure(self._menu_auto_update_idx, label=new_label)
+        if self.config.auto_update:
+            self._start_auto_updater()
+        elif self._updater:
+            self._updater.stop_background()
+            self._updater = None
+        _notify("Settings", new_label, "")
 
-    def _toggle_error_reporting(self_, _):
-        if not self_._config:
+    def _toggle_error_reporting(self):
+        """Vaihda error reporting päälle/pois."""
+        if not self.config:
             return
-        self_._config.error_reporting = not self_._config.error_reporting
-        self_._persist_env("ERROR_REPORTING", "true" if self_._config.error_reporting else "false")
-        status = "✅ ON" if self_._config.error_reporting else "❌ OFF"
-        rumps.notification("Settings", f"Error Reporting: {status}", "")
+        self.config.error_reporting = not self.config.error_reporting
+        self._persist_env("ERROR_REPORTING", "true" if self.config.error_reporting else "false")
+        new_label = "Error Reporting: " + ("✅ ON" if self.config.error_reporting else "❌ OFF")
+        self._auto_update_menu.entryconfigure(self._menu_error_rpt_idx, label=new_label)
+        _notify("Settings", new_label, "")
 
-    def _persist_env(self_, key: str, value: str):
-        import os as _os
-        env_path = _os.path.expanduser("~/.hermes/.env")
-        _os.environ[key] = value
+    def _persist_env(self, key: str, value: str):
+        """Tallenna asetus ~/.hermes/.env-tiedostoon."""
+        env_path = os.path.expanduser("~/.hermes/.env")
+        os.environ[key] = value
         try:
-            if _os.path.exists(env_path):
+            if os.path.exists(env_path):
                 with open(env_path) as f:
                     lines = f.readlines()
             else:
@@ -592,83 +621,19 @@ class _MenubarController(rumps.App if _HAS_RUMPS else object):
         except Exception as e:
             logger.error(f"Failed to persist {key}: {e}")
 
-    def _quit(self_, _):
-        logger.info("Quit from menubar")
-        if self_._pipeline and self_._pipeline._running:
-            self_._pipeline.stop()
-        if self_._window:
-            self_._window.close()
-        if self_._on_quit:
-            self_._on_quit()
-        rumps.quit_application()
-
-
-# ═══════════════════════════════════════════════════════════
-# App — pääsovellus
-# ═══════════════════════════════════════════════════════════
-
-class App:
-    """Clairvoyant-Optics — macOS-natiivisovellus (Dock + Menubar)."""
-
-    def __init__(
-        self,
-        pipeline=None,
-        config=None,
-        web_port: int = 8765,
-        on_quit: callable = None,
-    ):
-        self.pipeline = pipeline
-        self.config = config
-        self.web_port = web_port
-        self._on_quit = on_quit
-        self._menubar = None
-        self._window = None
-        self._updater = None
-
-    @property
-    def menubar_available(self) -> bool:
-        return _HAS_RUMPS
-
-    def run(self):
-        """Käynnistä sovellus — natiivi-ikkuna + menubar."""
-        api_base = f"http://127.0.0.1:{self.web_port}"
-
-        # 1. Luo natiivi-ikkuna (tkinter)
-        self._window = StatusWindow(api_base)
-
-        # 2. Käynnistä menubar taustalla
-        if _HAS_RUMPS:
-            self._start_menubar()
-
-        # 3. Näytä ikkuna heti
-        self._window.show()
-
-        # 4. Automaattipäivitys jos opt-in
-        if self.config and self.config.auto_update:
-            self._start_auto_updater()
-
-        # 5. Tkinter mainloop (blokkaava)
-        try:
-            self._window._root.mainloop()
-        except KeyboardInterrupt:
-            pass
-
-        # Siivous
-        self._do_quit()
-
     def _start_auto_updater(self):
+        """Käynnistä automaattinen päivitystentarkistus taustalla."""
         try:
             from src.macos.updater import Updater, get_current_version
 
             def _on_update(update_info: dict):
                 try:
                     v = update_info["version"]
-                    if self._menubar:
-                        if getattr(self._menubar, "_last_update_notified", "") == v:
-                            return
-                        self._menubar._last_update_notified = v
-                    if _HAS_RUMPS:
-                        rumps.notification("Update Available", f"Clairvoyant-Optics v{v}", "Click to download")
+                    _notify(
+                        "Update Available",
+                        f"Clairvoyant-Optics v{v}",
+                        "Click to download",
+                    )
                     webbrowser.open(update_info["url"])
                 except Exception as e:
                     logger.error(f"Update notification failed: {e}")
@@ -682,52 +647,16 @@ class App:
         except Exception as e:
             logger.error(f"Failed to start auto-updater: {e}")
 
-    def _start_menubar(self):
-        status_item = rumps.MenuItem("Status: Idle")
-        toggle_item = rumps.MenuItem("▶ Start")
-        show_item = rumps.MenuItem("Show Window")
-        web_item = rumps.MenuItem(f"Open Dashboard (:{self.web_port})")
-        update_item = rumps.MenuItem("Check for Updates...")
-        quit_item = rumps.MenuItem("Quit")
-        auto_update_item = rumps.MenuItem("Auto-Update: ❌ OFF")
-        error_rpt_item = rumps.MenuItem("Error Reporting: ❌ OFF")
-
-        menu = [
-            status_item, None,          # 0: status, 1: ---
-            toggle_item,                # 2: toggle
-            show_item,                  # 3: show window
-            web_item,                   # 4: open browser
-            update_item,                # 5: check updates
-            None,                       # 6: ---
-            auto_update_item,           # 7: auto-update toggle
-            None,                       # 8: ---
-            error_rpt_item,             # 9: error reporting toggle
-            None,                       # 10: ---
-            quit_item,                  # 11: quit
-        ]
-
-        self._menubar = _MenubarController(
-            "Clairvoyant-Optics",
-            menu,
-            self.pipeline,
-            self.web_port,
-            self._on_quit,
-            self.config,
-            self._window,
-        )
-
-        toggle_item.set_callback(lambda s: s._toggle(s))
-        show_item.set_callback(lambda s: s._show_window(s))
-        web_item.set_callback(lambda s: s._open_dashboard(s))
-        update_item.set_callback(lambda s: s._check_updates(s))
-        auto_update_item.set_callback(lambda s: s._toggle_auto_update(s))
-        error_rpt_item.set_callback(lambda s: s._toggle_error_reporting(s))
-        quit_item.set_callback(lambda s: s._quit(s))
-
-        t = threading.Thread(target=self._menubar.run, daemon=True)
-        t.start()
+    def _quit_app(self):
+        """Sulje koko sovellus (valikkoriviltä)."""
+        self._do_quit()
+        try:
+            self._window._root.destroy()
+        except Exception:
+            pass
 
     def _do_quit(self):
+        """Siivoa resurssit."""
         if self._updater:
             self._updater.stop_background()
         if self.pipeline and self.pipeline._running:
@@ -736,3 +665,84 @@ class App:
             self._window.close()
         if self._on_quit:
             self._on_quit()
+
+
+# ═══════════════════════════════════════════════════════════
+# __main__ — PyInstaller entry point (suora ajo bundlesta)
+# ═══════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import sys
+
+    # Hanki projektin juuri
+    if getattr(sys, "frozen", False):
+        project_root = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(sys.executable).parent.parent / "Resources"
+    else:
+        project_root = Path(__file__).resolve().parent.parent
+
+    # Varmista että src/ on import-polussa
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    # Versio
+    from src.version import VERSION
+
+    # Lataa config
+    env_path = Path(os.path.expanduser("~/.hermes/.env"))
+    from src.config import load_config
+    config = load_config(env_path if env_path.exists() else None)
+
+    # Logitus
+    from src.utils import setup_logging
+    setup_logging(config.log_level)
+
+    logger.info(f"Clairvoyant-Optics v{VERSION} starting")
+    logger.info(f"Project root: {project_root}")
+
+    # Pipeline
+    from src.main import DetectionPipeline
+    pipeline = DetectionPipeline(config)
+
+    # Web server (FastAPI) taustasäikeeseen
+    import uvicorn
+    from src.macos.web_server import WebServer
+
+    ws = WebServer(pipeline=pipeline, config=config)
+    if ws.available:
+        app_fastapi = ws.create_app()
+        web_thread = threading.Thread(
+            target=uvicorn.run,
+            args=(app_fastapi,),
+            kwargs={"host": ws.host, "port": ws.port, "log_level": "warning"},
+            daemon=True,
+        )
+        web_thread.start()
+        time.sleep(1.5)  # Anna serverin käynnistyä
+        logger.info(f"Web server: {ws.url}")
+    else:
+        logger.error("FastAPI/uvicorn not available — web API disabled")
+        ws = None
+
+    # Virheraportoija (opt-in)
+    try:
+        from src.macos.error_reporter import install_error_reporter
+        install_error_reporter()
+    except Exception:
+        pass
+
+    # macOS-natiivisovellus
+    app = App(pipeline=pipeline, config=config, web_port=8765)
+
+    # Käynnistä pipeline taustasäikeeseen
+    def _start_pipeline():
+        try:
+            pipeline.start()
+        except Exception as e:
+            logger.error(f"Pipeline start failed: {e}")
+
+    pipeline_thread = threading.Thread(target=_start_pipeline, daemon=True)
+    pipeline_thread.start()
+
+    # Käynnistä UI (blokkaava)
+    logger.info("Starting tkinter mainloop...")
+    app.run()

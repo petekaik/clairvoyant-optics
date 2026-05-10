@@ -78,6 +78,50 @@ jobs:
           codesign --force --deep --sign - dist/Clairvoyant-Optics.app
           find dist/Clairvoyant-Optics.app -exec xattr -c {} \; 2>/dev/null || true
 
+      - name: 🧪 Smoke test (verify app launches + API responds)
+        run: |
+          APP="dist/Clairvoyant-Optics.app"
+          BINARY="$APP/Contents/MacOS/Clairvoyant-Optics"
+
+          echo "=== Bundle structure ==="
+          ls -la "$APP/Contents/Info.plist" || { echo "❌ No Info.plist"; exit 1; }
+          ls -la "$APP/Contents/Resources/icon.icns" || echo "⚠ No icon file"
+          ls -la "$BINARY" || { echo "❌ No executable"; exit 1; }
+
+          echo "=== Launch test (5s timeout) ==="
+          # Start app in background, wait for API, kill
+          "$BINARY" &
+          PID=$!
+          echo "App PID: $PID"
+
+          # Poll /api/status up to 15s
+          for i in $(seq 1 15); do
+            sleep 1
+            if curl -sf http://127.0.0.1:8765/api/status > /dev/null 2>&1; then
+              echo "✅ API responded after ${i}s"
+              break
+            fi
+            if [ $i -eq 15 ]; then
+              echo "❌ API never responded — APP IS BROKEN"
+              kill $PID 2>/dev/null || true
+              exit 1
+            fi
+          done
+
+          # Verify response structure
+          RESP=$(curl -s http://127.0.0.1:8765/api/status)
+          echo "API response: $RESP"
+          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ state:', d.get('state','?'))" || {
+            echo "❌ Invalid JSON response"
+            kill $PID 2>/dev/null || true
+            exit 1
+          }
+
+          # Cleanup
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null
+          echo "=== Smoke test PASSED ==="
+
       - name: Package DMG
         run: |
           VERSION="${{ steps.version.outputs.version }}"
