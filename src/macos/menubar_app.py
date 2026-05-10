@@ -1,10 +1,14 @@
-"""macOS Menubar -sovellus rumps-kirjastolla.
+"""macOS Menubar + Dashboard -sovellus — näkyy Dockissa ja menubarissa.
 
-Näyttää putken tilan, pikatoiminnot ja hallintapaneelin linkin.
+Arkkitehtuuri:
+- pywebview: natiivi ikkuna web-dashboardille (näkyy Dockissa)
+- rumps: menubar-kuvake ja kontrollit
+- LSUIElement=false: Dock-ikoni näkyvissä, käyttäjä löytää sovelluksen
 """
 
 import logging
 import threading
+import webbrowser
 
 logger = logging.getLogger(__name__)
 
@@ -15,13 +19,16 @@ try:
 except ImportError:
     pass
 
+_HAS_WEBVIEW = False
+try:
+    import webview
+    _HAS_WEBVIEW = True
+except ImportError:
+    pass
 
-class ClairvoyantApp(rumps.App if _HAS_RUMPS else object):
-    """Rumps-sovellus — menubar itemit ja callbackit.
 
-    Määritelty moduulitasolla jotta py2app:n modulegraph ei rekursioidu
-    sisäkkäisen luokan AST-analyysissä.
-    """
+class _MenubarController(rumps.App if _HAS_RUMPS else object):
+    """Rumps-menubar-sovellus — pikakontrollit."""
 
     def __init__(self_, title, menu, pipeline, web_port, on_quit):
         super().__init__(title, menu=menu, quit_button=None)
@@ -40,13 +47,28 @@ class ClairvoyantApp(rumps.App if _HAS_RUMPS else object):
 
     @rumps.timer(3)
     def _update_status(self_, _):
+        opt = self_._pipeline.optimizer if self_._pipeline else None
         if self_._pipeline and self_._pipeline._running:
             cam_count = len(self_._pipeline.streams)
             face_count = len(self_._pipeline.face_db.get_all_faces())
-            self_._menu_status.title = f"Status: {cam_count} cameras · {face_count} faces"
+            extra = ""
+            if opt:
+                bat = opt._last_battery_pct
+                ssid = opt._last_ssid
+                parts = []
+                if bat is not None:
+                    parts.append(f"{'🔌' if opt.is_on_power else '🔋'} {bat}%")
+                if ssid:
+                    parts.append(f"📶 {ssid}")
+                if parts:
+                    extra = " · " + " ".join(parts)
+            self_._menu_status.title = f"Status: {cam_count} cameras · {face_count} faces{extra}"
             self_._menu_toggle.title = "⏸ Pause"
         elif self_._pipeline and not self_._pipeline._running:
-            self_._menu_status.title = "Status: Paused"
+            reason = ""
+            if opt and opt.suspended_reason:
+                reason = f" ({opt.suspended_reason})"
+            self_._menu_status.title = f"Status: Paused{reason}"
             self_._menu_toggle.title = "▶ Start"
         else:
             self_._menu_status.title = "Status: Idle"
@@ -58,11 +80,11 @@ class ClairvoyantApp(rumps.App if _HAS_RUMPS else object):
         if self_._pipeline._running:
             self_._pipeline.stop()
         else:
+            self_._pipeline.optimizer._manual_override = True
             t = threading.Thread(target=self_._pipeline.start, daemon=True)
             t.start()
 
     def _open_dashboard(self, _):
-        import webbrowser
         webbrowser.open(f"http://localhost:{self_._web_port}")
 
     def _check_updates(self, _):
@@ -76,17 +98,11 @@ class ClairvoyantApp(rumps.App if _HAS_RUMPS else object):
                     f"Clairvoyant-Optics v{update['version']}",
                     "Click to download",
                 )
-                import webbrowser
                 webbrowser.open(update["url"])
             else:
-                rumps.notification(
-                    "Up to Date",
-                    f"v{get_current_version()}",
-                    "No updates available",
-                )
+                rumps.notification("Up to Date", f"v{get_current_version()}", "")
         except Exception as e:
             logger.error(f"Update check failed: {e}")
-            rumps.notification("Error", "Update check failed", str(e))
 
     def _quit(self, _):
         logger.info("Quit from menubar")
@@ -97,8 +113,8 @@ class ClairvoyantApp(rumps.App if _HAS_RUMPS else object):
         rumps.quit_application()
 
 
-class MenubarApp:
-    """Clairvoyant-Optics macOS Menubar -sovellus."""
+class App:
+    """Clairvoyant-Optics — macOS-sovellus (Dock + Menubar)."""
 
     def __init__(
         self,
@@ -109,28 +125,58 @@ class MenubarApp:
         self.pipeline = pipeline
         self.web_port = web_port
         self._on_quit = on_quit
-        self._app = None
+        self._menubar = None
+        self._webview_window = None
 
     @property
-    def available(self) -> bool:
+    def menubar_available(self) -> bool:
         return _HAS_RUMPS
 
-    def run(self):
-        """Käynnistä menubar-sovellus (blokkaa)."""
-        if not _HAS_RUMPS:
-            logger.warning("rumps not installed")
-            return
+    @property
+    def webview_available(self) -> bool:
+        return _HAS_WEBVIEW
 
-        # Build menu items
+    def run(self):
+        """Käynnistä sovellus — webview-ikkuna + menubar."""
+        dashboard_url = f"http://localhost:{self.web_port}"
+
+        # 1. Käynnistä menubar taustalla
+        if _HAS_RUMPS:
+            self._start_menubar()
+
+        # 2. Avaa webview-ikkuna (blokkaava kutsu — pysyy auki)
+        if _HAS_WEBVIEW:
+            logger.info(f"Opening dashboard window: {dashboard_url}")
+            # webview.create_window blokkaa kunnes ikkuna suljetaan
+            webview.create_window(
+                "Clairvoyant-Optics",
+                dashboard_url,
+                width=1100,
+                height=750,
+                min_size=(800, 500),
+                resizable=True,
+            )
+        else:
+            # Fallback: avaa selaimeen
+            logger.warning("pywebview not installed — opening in browser")
+            webbrowser.open(dashboard_url)
+            input("Press Enter to exit...\n")
+
+        # Siivous
+        if self._menubar is None:
+            self._do_quit()
+
+    def _start_menubar(self):
+        """Käynnistä menubar erillisessä säikeessä."""
         status_item = rumps.MenuItem("Status: Idle")
         toggle_item = rumps.MenuItem("▶ Start")
-        web_item = rumps.MenuItem(f"Open Dashboard (:{self.web_port})")
+        web_item = rumps.MenuItem(f"Dashboard (:{self.web_port})")
         update_item = rumps.MenuItem("Check for Updates...")
         quit_item = rumps.MenuItem("Quit")
 
         menu = [status_item, None, toggle_item, web_item, update_item, None, quit_item]
 
-        self._app = ClairvoyantApp(
+        self._menubar = _MenubarController(
             "Clairvoyant-Optics",
             menu,
             self.pipeline,
@@ -138,10 +184,16 @@ class MenubarApp:
             self._on_quit,
         )
 
-        # Wire callbacks
         toggle_item.set_callback(lambda s: s._toggle(s))
         web_item.set_callback(lambda s: s._open_dashboard(s))
         update_item.set_callback(lambda s: s._check_updates(s))
         quit_item.set_callback(lambda s: s._quit(s))
 
-        self._app.run()
+        t = threading.Thread(target=self._menubar.run, daemon=True)
+        t.start()
+
+    def _do_quit(self):
+        if self.pipeline and self.pipeline._running:
+            self.pipeline.stop()
+        if self._on_quit:
+            self._on_quit()

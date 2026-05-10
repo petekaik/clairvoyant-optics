@@ -85,6 +85,13 @@ class WebServer:
                     for f in all_faces
                 ],
                 "detections_today": self._get_detection_count(),
+                "optimizer": {
+                    "suspended_reason": self.pipeline.optimizer.suspended_reason if self.pipeline.optimizer else None,
+                    "is_on_power": self.pipeline.optimizer.is_on_power if self.pipeline.optimizer else True,
+                    "is_home_wifi": self.pipeline.optimizer.is_home_wifi if self.pipeline.optimizer else True,
+                    "battery_pct": self.pipeline.optimizer._last_battery_pct if self.pipeline.optimizer else None,
+                    "ssid": self.pipeline.optimizer._last_ssid if self.pipeline.optimizer else None,
+                } if self.pipeline.optimizer else None,
             }
 
         @app.get("/api/cameras")
@@ -277,6 +284,13 @@ class WebServer:
             <div class="stat" id="state">—</div>
             <div class="label" id="subtitle">Loading...</div>
         </div>
+        <div class="card" id="power-card">
+            <h2>Power &amp; Network</h2>
+            <div class="stat" id="power-icon">—</div>
+            <div class="label" id="power-label">Checking...</div>
+            <div class="label" id="wifi-label" style="margin-top:8px"></div>
+            <div class="label" id="optimizer-reason" style="margin-top:8px;color:#ffd60a;"></div>
+        </div>
         <div class="card">
             <h2>Cameras</h2>
             <ul class="list" id="cameras"><li>Loading...</li></ul>
@@ -301,6 +315,36 @@ class WebServer:
                 const d = await r.json();
                 document.getElementById('state').textContent = d.state;
                 document.getElementById('subtitle').textContent = d.cameras.length + ' cameras · ' + d.faces.length + ' faces';
+
+                // Power & Network status
+                const opt = d.optimizer;
+                const powerIcon = document.getElementById('power-icon');
+                const powerLabel = document.getElementById('power-label');
+                const wifiLabel = document.getElementById('wifi-label');
+                const reason = document.getElementById('optimizer-reason');
+                if (opt) {
+                    if (opt.is_on_power) {
+                        powerIcon.textContent = '🔌';
+                        powerLabel.textContent = 'AC Power' + (opt.battery_pct !== null ? ' · Battery ' + opt.battery_pct + '%' : '');
+                    } else {
+                        powerIcon.textContent = '🔋';
+                        powerLabel.textContent = 'Battery ' + (opt.battery_pct !== null ? opt.battery_pct + '%' : '');
+                    }
+                    wifiLabel.textContent = '📶 ' + (opt.ssid || 'Unknown WiFi');
+                    if (!opt.is_home_wifi) {
+                        wifiLabel.textContent += ' ⚠ Not home';
+                    }
+                    if (opt.suspended_reason) {
+                        reason.textContent = '⏸ Suspended: ' + opt.suspended_reason;
+                    } else {
+                        reason.textContent = '';
+                    }
+                } else {
+                    powerIcon.textContent = '🔌';
+                    powerLabel.textContent = 'Optimizer disabled';
+                    wifiLabel.textContent = '';
+                    reason.textContent = '';
+                }
                 
                 document.getElementById('cameras').innerHTML = d.cameras.map(c =>
                     '<li><span>' + c.name + '</span><span class="badge ' + (c.active ? 'badge-green' : 'badge-yellow') + '">' + (c.active ? 'active' : 'inactive') + '</span></li>'

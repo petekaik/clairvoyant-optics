@@ -84,6 +84,17 @@ class DetectionPipeline:
         except ImportError:
             pass
 
+        # Battery + WiFi optimizer
+        self.optimizer = None
+        from src.macos.battery_optimizer import BatteryOptimizer
+        self.optimizer = BatteryOptimizer(
+            pipeline=self,
+            pause_on_battery=config.pause_on_battery,
+            home_ssids=config.home_ssids,
+            pause_when_away=config.pause_when_away,
+        )
+        self.optimizer.start()
+
         # Stream readerit per kamera
         self.streams: dict[str, HLSStreamReader] = {}
         self._init_streams()

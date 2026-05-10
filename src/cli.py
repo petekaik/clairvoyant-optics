@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None):
 
 
 def _cmd_start(args):
-    """Käynnistä koko putki + menubar + web."""
+    """Käynnistä koko putki + webview-ikkuna + menubar."""
     from src.config import load_config
     from src.utils import setup_logging
 
@@ -78,33 +78,40 @@ def _cmd_start(args):
     setup_logging(config.log_level)
 
     from src.main import DetectionPipeline
+    from src.macos.web_server import WebServer
+    import threading, uvicorn
 
     pipeline = DetectionPipeline(config)
 
-    if not args.no_menubar:
-        from src.macos.menubar_app import MenubarApp
-        menubar = MenubarApp(pipeline=pipeline, web_port=args.web_port if not args.no_web else 0)
-        if menubar.available:
-            import threading
-            def _start_pipeline():
-                pipeline.start()
-            t = threading.Thread(target=_start_pipeline, daemon=True)
-            t.start()
-            menubar.run()
-            return
-
-    # Fallback: suora ajo ilman menubaria
+    # Web server taustalle
     if not args.no_web:
-        from src.macos.web_server import WebServer
-        import threading
         ws = WebServer(pipeline=pipeline, config=config)
         if ws.available:
-            app = ws.create_app()
-            import uvicorn
-            t = threading.Thread(target=uvicorn.run, args=(app,), kwargs={"host": ws.host, "port": ws.port}, daemon=True)
+            app_fastapi = ws.create_app()
+            t = threading.Thread(
+                target=uvicorn.run,
+                args=(app_fastapi,),
+                kwargs={"host": ws.host, "port": ws.port},
+                daemon=True,
+            )
             t.start()
-            print(f"Dashboard: {ws.url}")
+            import time
+            time.sleep(1)  # Anna serverin käynnistyä
 
+    web_port = 8765
+
+    # macOS GUI (Dock + Menubar)
+    from src.macos.menubar_app import App
+    app = App(pipeline=pipeline, web_port=web_port)
+    if app.webview_available or app.menubar_available:
+        def _start_pipeline():
+            pipeline.start()
+        t = threading.Thread(target=_start_pipeline, daemon=True)
+        t.start()
+        app.run()
+        return
+
+    # Fallback: suora ajo ilman GUI:ta
     pipeline.start()
 
 

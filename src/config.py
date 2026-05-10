@@ -24,6 +24,20 @@ def _env_float(key: str, default: float) -> float:
         return default
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    val = os.getenv(key, "").strip().lower()
+    if not val:
+        return default
+    return val in ("1", "true", "yes", "on")
+
+
+def _env_list(key: str, separator: str = ",") -> list[str]:
+    val = os.getenv(key, "")
+    if not val:
+        return []
+    return [item.strip() for item in val.split(separator) if item.strip()]
+
+
 @dataclass
 class CameraConfig:
     stream_url: str
@@ -64,6 +78,11 @@ class Config:
     detection: DetectionConfig
     log_level: str
     project_root: Path = field(init=False)
+
+    # Battery + WiFi optimizer
+    pause_on_battery: bool = False
+    home_ssids: list[str] = field(default_factory=list)
+    pause_when_away: bool = False
 
     def __post_init__(self) -> None:
         self.project_root = Path(__file__).resolve().parent.parent
@@ -117,6 +136,9 @@ def load_config(env_path: Optional[Path] = None) -> Config:
             frame_interval=_env_int("FRAME_INTERVAL", 5),
         ),
         log_level=_env("LOG_LEVEL", "INFO").upper(),
+        pause_on_battery=_env_bool("PAUSE_ON_BATTERY"),
+        home_ssids=_env_list("HOME_SSIDS"),
+        pause_when_away=_env_bool("PAUSE_WHEN_AWAY"),
     )
 
 
