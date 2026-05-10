@@ -94,7 +94,7 @@ jobs:
       - name: Code sign & clean
         run: |
           codesign --force --sign - dist/Clairvoyant-Optics.app
-          xattr -cr dist/Clairvoyant-Optics.app
+          find dist/Clairvoyant-Optics.app -exec xattr -c {} \; 2>/dev/null || true
 
       - name: Package DMG
         run: |
