@@ -229,6 +229,15 @@ class WebServer:
             results = importer.import_faces(person_names=person_names)
             return {"imported": results}
 
+        @app.get("/api/telemetry")
+        async def telemetry():
+            """Opt-in/out -asetukset: automaattipäivitys + virheraportointi."""
+            cfg = self.config
+            return {
+                "auto_update": getattr(cfg, "auto_update", False),
+                "error_reporting": getattr(cfg, "error_reporting", False),
+            }
+
         return app
 
     def _get_detection_count(self) -> int:
@@ -303,6 +312,16 @@ class WebServer:
             <h2>Actions</h2>
             <button class="btn" onclick="importPhotos()">Import from Photos.app</button>
         </div>
+        <div class="card" id="telemetry-card">
+            <h2>Telemetry & Updates</h2>
+            <div class="label" id="telemetry-auto-update">Auto-Update: —</div>
+            <div class="label" id="telemetry-error-rpt" style="margin-top:8px">Error Reporting: —</div>
+            <div class="label" style="margin-top:12px;font-size:11px;color:#8e8e93">
+                Error reports are labeled <code>auto-reported</code> and analyzed daily by
+                the Error Issue Analyzer workflow. It groups duplicates, identifies patterns,
+                and generates a prioritized issue for the developer.
+            </div>
+        </div>
         <div class="card">
             <h2>Test Notifications</h2>
             <div id="test-panel">Loading cameras...</div>
@@ -364,6 +383,18 @@ class WebServer:
                         <img class="snapshot" id="snap-${c.name}" />
                     </div>
                 `).join('') || '<div class="test-label">No cameras configured</div>';
+
+                // Telemetry status
+                try {
+                    const t = await fetch('/api/telemetry');
+                    const tm = await t.json();
+                    document.getElementById('telemetry-auto-update').textContent = 
+                        'Auto-Update: ' + (tm.auto_update ? '✅ ON — checks every 6h' : '❌ OFF');
+                    document.getElementById('telemetry-error-rpt').textContent = 
+                        'Error Reporting: ' + (tm.error_reporting ? '✅ ON' : '❌ OFF');
+                } catch(e) {
+                    console.error('Telemetry fetch failed:', e);
+                }
             } catch(e) {
                 document.getElementById('state').textContent = 'Error';
                 document.getElementById('subtitle').textContent = e.message;

@@ -102,7 +102,7 @@ def _cmd_start(args):
 
     # macOS GUI (Dock + Menubar)
     from src.macos.menubar_app import App
-    app = App(pipeline=pipeline, web_port=web_port)
+    app = App(pipeline=pipeline, config=config, web_port=web_port)
     if app.webview_available or app.menubar_available:
         def _start_pipeline():
             pipeline.start()

@@ -1,11 +1,20 @@
-"""Automaattinen virheraportointi GitHub Issuesiin.
+"""Automaattinen virheraportointi GitHub Issuesiin — opt-in.
 
 Kaappaa käsittelemättömät poikkeukset ja luo GitHub Issueen
 stack tracen, ympäristötiedot ja redacted konfiguraation.
 
+Opt-in: ERROR_REPORTING=true .env-tiedostossa. Oletuksena pois päältä.
+
 Käynnistys:
     from src.macos.error_reporter import install_error_reporter
     install_error_reporter("petekaik/clairvoyant-optics")
+
+Versiokehitysautomaatio:
+    GitHub Actions -workflow "Error Issue Analyzer" (`.github/workflows/error-analyzer.yml`)
+    analysoi `auto-reported` + `bug` -labeleilla merkityt issuet kerran päivässä.
+    Se ryhmittelee virheet tyypin mukaan, tunnistaa toistuvat patternit, ja generoi
+    yhteenvedon → luo prio-gh-issuen kehittäjälle. Tämä mahdollistaa jatkuvan
+    parantamisen ilman että käyttäjän tarvitsee manuaalisesti raportoida.
 """
 
 import json
@@ -35,14 +44,20 @@ class ErrorReporter:
         self._repo = repo
         self._token = token or os.getenv("GITHUB_TOKEN") or ""
         self._base_url = f"https://api.github.com/repos/{repo}"
-        self._reported_errors: set[str] = set()  # Dedup hash
+        self._reported_errors: set[str] = set()
 
     @property
     def enabled(self) -> bool:
-        return bool(self._token)
+        """Onko raportointi sallittu: token + opt-in."""
+        if not self._token:
+            return False
+        # Opt-in guard: ERROR_REPORTING pitää olla eksplisiittisesti true
+        val = os.getenv("ERROR_REPORTING", "").strip().lower()
+        if val not in ("1", "true", "yes", "on"):
+            return False
+        return True
 
     def _redact_value(self, key: str, value: str) -> str:
-        """Redaktoi arkaluontoiset arvot."""
         key_upper = key.upper()
         for rk in _REDACT_KEYS:
             if rk in key_upper:
@@ -52,7 +67,6 @@ class ErrorReporter:
         return value
 
     def _get_env_safe(self) -> str:
-        """Palauta redaktoidut ympäristömuuttujat."""
         lines = []
         for key in sorted(os.environ.keys()):
             value = os.environ[key]
@@ -61,7 +75,6 @@ class ErrorReporter:
         return "\n".join(lines)
 
     def _get_system_info(self) -> str:
-        """Kerää järjestelmän tiedot."""
         info = {
             "platform": platform.platform(),
             "python": sys.version,
@@ -74,18 +87,15 @@ class ErrorReporter:
         return "\n".join(f"  {k}: {v}" for k, v in info.items())
 
     def _error_hash(self, exc_type: type, exc_value: BaseException, traceback_str: str) -> str:
-        """Luo uniikki hash virheelle deduplikoinnin mahdollistamiseksi."""
         import hashlib
         content = f"{exc_type.__name__}:{exc_value}:{traceback_str.split(chr(10))[-3:]}"
         return hashlib.md5(content.encode()).hexdigest()[:12]
 
     def _search_existing_issue(self, title_prefix: str) -> Optional[int]:
-        """Etsi onko samankaltaista avointa issuea jo olemassa."""
         if not self._token:
             return None
         try:
             import urllib.request
-            import urllib.error
 
             url = f"{self._base_url}/issues?state=open&labels=bug,auto-reported&per_page=20"
             req = urllib.request.Request(
@@ -115,25 +125,27 @@ class ErrorReporter:
         exc_tb: object,
         context: str = "",
     ) -> Optional[str]:
-        """Raportoi poikkeus GitHub Issueen.
+        """Raportoi poikkeus GitHub Issueen — vain jos opt-in on päällä.
 
-        Palauttaa issue-URL:n tai None jos raportointi epäonnistui.
+        Palauttaa issue-URL:n tai None.
         """
-        if not self._token:
-            logger.warning("GITHUB_TOKEN not set — error not reported to GitHub")
+        if not self.enabled:
+            logger.debug("Error reporting disabled (opt-in required: ERROR_REPORTING=true)")
             return None
 
         tb_str = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        error_type = f"{exc_type.__module__}.{exc_type.__qualname__}" if hasattr(exc_type, "__qualname__") else exc_type.__name__
+        error_type = (
+            f"{exc_type.__module__}.{exc_type.__qualname__}"
+            if hasattr(exc_type, "__qualname__")
+            else exc_type.__name__
+        )
 
-        # Deduplikoinnin tarkistus
         error_hash = self._error_hash(exc_type, exc_value, tb_str)
         if error_hash in self._reported_errors:
             logger.info(f"Duplicate error suppressed: {error_hash}")
             return None
         self._reported_errors.add(error_hash)
 
-        # Rakenna issuen sisältö
         title = f"[auto] {error_type}: {str(exc_value)[:100]}"
         body = f"""## Unhandled Exception
 
@@ -159,20 +171,17 @@ class ErrorReporter:
 {self._get_env_safe()}
 ```
 """
-        # Tarkista duplikaattien varalta
         existing = self._search_existing_issue(title)
         if existing is not None:
             return f"https://github.com/{self._repo}/issues/{existing}"
 
-        # Luo issue
         try:
             import urllib.request
-            import urllib.error
 
             url = f"{self._base_url}/issues"
             data = json.dumps({
                 "title": title,
-                "body": body[:65536],  # GitHub limit
+                "body": body[:65536],
                 "labels": ["bug", "auto-reported"],
             }).encode("utf-8")
 
@@ -202,22 +211,29 @@ class ErrorReporter:
 _error_reporter: Optional[ErrorReporter] = None
 
 
-def install_error_reporter(repo: str = "petekaik/clairvoyant-optics") -> None:
-    """Asenna globaali virheraportoija excepthookiin."""
+def install_error_reporter(repo: str = "petekaik/clairvoyant-optics") -> bool:
+    """Asenna globaali virheraportoija excepthookiin.
+
+    Palauttaa True jos raportointi on päällä, False jos ei.
+    """
     global _error_reporter
     _error_reporter = ErrorReporter(repo=repo)
 
+    if not _error_reporter.enabled:
+        logger.info(
+            "Error reporter installed but DISABLED — "
+            "set ERROR_REPORTING=true in ~/.hermes/.env to enable"
+        )
+        return False
+
     def _excepthook(exc_type, exc_value, exc_tb):
-        """Kustomoitu excepthook — raportoi ja näytä."""
-        # Raportoi GitHubiin
         if _error_reporter:
             _error_reporter.report_error(exc_type, exc_value, exc_tb)
-
-        # Näytä konsolissa normaalisti
         sys.__excepthook__(exc_type, exc_value, exc_tb)
 
     sys.excepthook = _excepthook
-    logger.info(f"Error reporter installed for {repo}")
+    logger.info(f"Error reporter ENABLED for {repo}")
+    return True
 
 
 def report_managed_error(
@@ -230,9 +246,4 @@ def report_managed_error(
     if not reporter.enabled:
         return None
     tb = exc.__traceback__
-    return reporter.report_error(
-        type(exc),
-        exc,
-        tb,
-        context=context,
-    )
+    return reporter.report_error(type(exc), exc, tb, context=context)

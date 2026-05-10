@@ -84,6 +84,10 @@ class Config:
     home_ssids: list[str] = field(default_factory=list)
     pause_when_away: bool = False
 
+    # Telemetry & Updates
+    auto_update: bool = False
+    error_reporting: bool = False
+
     def __post_init__(self) -> None:
         self.project_root = Path(__file__).resolve().parent.parent
 
@@ -139,6 +143,8 @@ def load_config(env_path: Optional[Path] = None) -> Config:
         pause_on_battery=_env_bool("PAUSE_ON_BATTERY"),
         home_ssids=_env_list("HOME_SSIDS"),
         pause_when_away=_env_bool("PAUSE_WHEN_AWAY"),
+        auto_update=_env_bool("AUTO_UPDATE"),
+        error_reporting=_env_bool("ERROR_REPORTING"),
     )
 
 
