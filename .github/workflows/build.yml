@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: macos-latest
     permissions:
-      contents: write   # Tarvitaan Release-luontiin
+      contents: write
       actions: read
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -69,7 +69,7 @@ jobs:
             --hidden-import osxphotos \
             src/macos/menubar_app.py
 
-      - name: Create .app bundle structure
+      - name: Create .app bundle
         run: |
           mkdir -p dist/Clairvoyant-Optics.app/Contents/MacOS
           mkdir -p dist/Clairvoyant-Optics.app/Contents/Resources
@@ -91,11 +91,10 @@ jobs:
           </plist>
           PLIST
 
-      - name: Code sign (ad-hoc)
+      - name: Code sign & clean
         run: |
-          # Ad-hoc-signeeraus: sallii sovelluksen ajon ilman Developer ID:tä
-          # Käyttäjän täytyy silti ohittaa Gatekeeper kerran: oikea klikkaus → Avaa
-          codesign --force --deep --sign - dist/Clairvoyant-Optics.app
+          codesign --force --sign - dist/Clairvoyant-Optics.app
+          xattr -cr dist/Clairvoyant-Optics.app
 
       - name: Package DMG
         run: |
