@@ -35,15 +35,22 @@ Surveillance Cameras ──→ YOLOv8n + InsightFace ──→ macOS Notificatio
 
 ## Quick Start
 
-### 1. Install
+### Option A: DMG Installer (recommended — no Python needed)
+
+1. Download `Clairvoyant-Optics-X.Y.Z.dmg` from [Releases](https://github.com/petekaik/clairvoyant-optics/releases)
+2. Open the DMG and drag `Clairvoyant-Optics.app` to `/Applications`
+3. **Right-click the app** → **Open** (macOS Gatekeeper requires this once for ad-hoc signed apps)
+4. Configure cameras in `~/.clairvoyant/.env` (see `CAM1_STREAM` example below)
+
+### Option B: From Source (developers)
 
 ```bash
 git clone git@github.com:petekaik/clairvoyant-optics.git
-cd Clairvoyant-Optics
+cd clairvoyant-optics
 pip install -e .
 ```
 
-### 2. Configure
+### Configure
 
 ```bash
 cp .env.example .env
