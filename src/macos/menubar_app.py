@@ -699,11 +699,16 @@ if __name__ == "__main__":
     logger.info(f"Clairvoyant-Optics v{VERSION} starting")
     logger.info(f"Project root: {project_root}")
 
-    # Pipeline
+    # Pipeline — luodaan mutta sallitaan virheet (CI:stä puuttuu .env)
     from src.main import DetectionPipeline
-    pipeline = DetectionPipeline(config)
+    try:
+        pipeline = DetectionPipeline(config)
+        logger.info("Pipeline created successfully")
+    except Exception as e:
+        logger.warning(f"Pipeline creation failed (non-fatal): {e}")
+        pipeline = None
 
-    # Web server (FastAPI) taustasäikeeseen
+    # Web server (FastAPI) taustasäikeeseen — KÄYNNISTETÄÄN AINA
     import uvicorn
     from src.macos.web_server import WebServer
 
