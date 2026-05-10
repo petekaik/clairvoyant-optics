@@ -91,6 +91,14 @@ jobs:
           </plist>
           PLIST
 
+      - name: Code sign (ad-hoc)
+        run: |
+          # Ad-hoc-signeeraus: sallii sovelluksen ajon ilman Developer ID:tä
+          # Käyttäjän täytyy silti ohittaa Gatekeeper kerran: oikea klikkaus → Avaa
+          codesign --force --deep --sign - dist/Clairvoyant-Optics.app
+          codesign -dvvv dist/Clairvoyant-Optics.app 2>&1 | head -5
+          xattr -cr dist/Clairvoyant-Optics.app
+
       - name: Package DMG
         run: |
           VERSION="${{ steps.version.outputs.version }}"
