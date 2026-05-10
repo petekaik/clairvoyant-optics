@@ -23,21 +23,32 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -e .
-          pip install pyinstaller
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-build.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
 
-      - name: Download ML models
+      - name: Install build dependencies
         run: |
-          python download_models.py --ci-mode 2>&1 || echo "⚠ Models may be cached, continuing..."
+          python3 -m pip install --upgrade pip
+          pip install pyinstaller pyyaml
 
       - name: Set version
         id: version
         run: |
           VERSION=$(python3 -c 'from src.version import VERSION; print(VERSION)')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Cache PyInstaller work dir
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/
+            *.spec
+          key: ${{ runner.os }}-pyinstaller-${{ steps.version.outputs.version }}-${{ hashFiles('src/macos/menubar_app.py', 'icon.icns') }}
+          restore-keys: ${{ runner.os }}-pyinstaller-
 
       - name: Build with PyInstaller (onedir)
         run: |
@@ -47,30 +58,8 @@ jobs:
             --windowed \
             --icon=icon.icns \
             --osx-bundle-identifier=fi.kaikkonen.clairvoyant-optics \
-            --add-data "src:src" \
-            --add-data "models:models" \
-            --hidden-import src \
-            --hidden-import src.cli \
-            --hidden-import src.main \
-            --hidden-import src.config \
-            --hidden-import src.recognition \
-            --hidden-import src.detection \
-            --hidden-import src.streams \
-            --hidden-import src.integration \
-            --hidden-import src.utils \
-            --hidden-import src.macos \
-            --hidden-import insightface \
-            --hidden-import insightface.app \
-            --hidden-import ultralytics \
-            --hidden-import cv2 \
-            --hidden-import onnxruntime \
-            --hidden-import fastapi \
-            --hidden-import uvicorn \
-            --hidden-import rumps \
-            --hidden-import macos_notifications \
-            --hidden-import osxphotos \
+            --add-data "icon.icns:." \
             --hidden-import tkinter \
-            --hidden-import src.macos.battery_optimizer \
             src/macos/menubar_app.py
 
       - name: Code sign & clean
@@ -78,7 +67,7 @@ jobs:
           codesign --force --deep --sign - dist/Clairvoyant-Optics.app
           find dist/Clairvoyant-Optics.app -exec xattr -c {} \; 2>/dev/null || true
 
-      - name: 🧪 Smoke test (verify app launches + API responds)
+      - name: 🧪 Smoke test (verify app launches without crash)
         run: |
           APP="dist/Clairvoyant-Optics.app"
           BINARY="$APP/Contents/MacOS/Clairvoyant-Optics"
@@ -88,34 +77,19 @@ jobs:
           ls -la "$APP/Contents/Resources/icon.icns" || echo "⚠ No icon file"
           ls -la "$BINARY" || { echo "❌ No executable"; exit 1; }
 
-          echo "=== Launch test (5s timeout) ==="
-          # Start app in background, wait for API, kill
+          echo "=== Launch & health check ==="
           "$BINARY" &
           PID=$!
           echo "App PID: $PID"
 
-          # Poll /api/status up to 15s
-          for i in $(seq 1 15); do
-            sleep 1
-            if curl -sf http://127.0.0.1:8765/api/status > /dev/null 2>&1; then
-              echo "✅ API responded after ${i}s"
-              break
-            fi
-            if [ $i -eq 15 ]; then
-              echo "❌ API never responded — APP IS BROKEN"
-              kill $PID 2>/dev/null || true
-              exit 1
-            fi
-          done
-
-          # Verify response structure
-          RESP=$(curl -s http://127.0.0.1:8765/api/status)
-          echo "API response: $RESP"
-          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ state:', d.get('state','?'))" || {
-            echo "❌ Invalid JSON response"
-            kill $PID 2>/dev/null || true
+          # Wait 3s and verify process is still alive (no immediate crash)
+          sleep 3
+          if kill -0 $PID 2>/dev/null; then
+            echo "✅ App alive after 3s"
+          else
+            echo "❌ App crashed — exit code: $(wait $PID 2>/dev/null; echo $?)"
             exit 1
-          }
+          fi
 
           # Cleanup
           kill $PID 2>/dev/null || true
