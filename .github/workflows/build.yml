@@ -39,12 +39,13 @@ jobs:
           VERSION=$(python3 -c 'from src.version import VERSION; print(VERSION)')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (onedir)
         run: |
           pyinstaller \
             --name=Clairvoyant-Optics \
-            --onefile \
+            --onedir \
             --windowed \
+            --osx-bundle-identifier=fi.kaikkonen.clairvoyant-optics \
             --add-data "src:src" \
             --add-data "models:models" \
             --hidden-import src \
@@ -69,31 +70,9 @@ jobs:
             --hidden-import osxphotos \
             src/macos/menubar_app.py
 
-      - name: Create .app bundle
-        run: |
-          mkdir -p dist/Clairvoyant-Optics.app/Contents/MacOS
-          mkdir -p dist/Clairvoyant-Optics.app/Contents/Resources
-          cp dist/Clairvoyant-Optics dist/Clairvoyant-Optics.app/Contents/MacOS/
-          cat > dist/Clairvoyant-Optics.app/Contents/Info.plist << 'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key><string>Clairvoyant-Optics</string>
-            <key>CFBundleDisplayName</key><string>Clairvoyant-Optics</string>
-            <key>CFBundleIdentifier</key><string>fi.kaikkonen.clairvoyant-optics</string>
-            <key>CFBundleVersion</key><string>${{ steps.version.outputs.version }}</string>
-            <key>CFBundleShortVersionString</key><string>${{ steps.version.outputs.version }}</string>
-            <key>CFBundleExecutable</key><string>Clairvoyant-Optics</string>
-            <key>LSUIElement</key><true/>
-            <key>NSHighResolutionCapable</key><true/>
-          </dict>
-          </plist>
-          PLIST
-
       - name: Code sign & clean
         run: |
-          codesign --force --sign - dist/Clairvoyant-Optics.app
+          codesign --force --deep --sign - dist/Clairvoyant-Optics.app
           find dist/Clairvoyant-Optics.app -exec xattr -c {} \; 2>/dev/null || true
 
       - name: Package DMG
