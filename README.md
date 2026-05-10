@@ -1,4 +1,4 @@
-# Clairvoyant-Optics v2
+# Clairvoyant-Optics v3
 
 **Your digital eye for macOS.** Monitors surveillance cameras in the background, recognizes family members from Photos.app face galleries, and sends native notifications — all running 100% locally on Apple Silicon.
 
@@ -8,21 +8,14 @@ Surveillance Cameras ──→ YOLOv8n + InsightFace ──→ macOS Notificatio
                                                      Stranger = alert
 ```
 
-## What's New in v2
+## What's New in v3
 
 - **🖥 macOS native** — No longer requires Home Assistant. Runs as a menubar app with native notifications.
+- **📦 DMG installer** — One-click install, no Python required. Ad-hoc signed for local trust.
 - **📸 Photos.app integration** — Imports face galleries directly from your macOS Photos library. Zero manual photo copying.
 - **🔔 Smart notifications** — Family members get a subtle notification. Strangers trigger an alert sound.
 - **🌐 Web dashboard** — Manage cameras, enrolled faces, and alerts at `http://localhost:8765`.
 - **🔌 Home Assistant optional** — MQTT support remains if you want HA integration.
-
-## How It Works
-
-1. **Continuous monitoring** — Reads HLS streams from your cameras (via MediaMTX or direct RTSP)
-2. **Person detection** — YOLOv8n on low-res frames (640×360), 5-10ms on M1 Neural Engine
-3. **Face recognition** — When a person is detected, fetches a 1080p snap JPEG and runs InsightFace/ArcFace
-4. **Match & notify** — Compares against enrolled family members. Known = gentle notification. Unknown = alert.
-5. **Photos.app sync** — Face galleries can be imported from Photos.app with one command
 
 ## Requirements
 
@@ -30,17 +23,23 @@ Surveillance Cameras ──→ YOLOv8n + InsightFace ──→ macOS Notificatio
 |---|---|
 | **Hardware** | Mac with Apple Silicon (M1+) and 8+ GB RAM |
 | **OS** | macOS 14+ (Sonoma or newer) |
-| **Python** | 3.10+ |
+| **Python** | 3.10+ (only if installing from source) |
 | **Cameras** | Any RTSP/HLS-capable camera. Tested with UniFi G3 + MediaMTX |
 
 ## Quick Start
 
 ### Option A: DMG Installer (recommended — no Python needed)
 
-1. Download `Clairvoyant-Optics-X.Y.Z.dmg` from [Releases](https://github.com/petekaik/clairvoyant-optics/releases)
+1. Download `Clairvoyant-Optics-3.0.1.dmg` from [Releases](https://github.com/petekaik/clairvoyant-optics/releases)
 2. Open the DMG and drag `Clairvoyant-Optics.app` to `/Applications`
-3. **Right-click the app** → **Open** (macOS Gatekeeper requires this once for ad-hoc signed apps)
-4. Configure cameras in `~/.clairvoyant/.env` (see `CAM1_STREAM` example below)
+3. **First launch** — macOS Gatekeeper blocks unsigned apps. Bypass it **once**:
+   - **Right-click** the app in `/Applications` → **Open** → confirm the dialog
+   - Or go to **System Settings → Privacy & Security → Security** → click **"Open Anyway"** next to the blocked message about Clairvoyant-Optics
+4. Configure cameras in `~/.clairvoyant/.env` (see section below)
+
+### Why does macOS block it?
+
+Clairvoyant-Optics is an open-source hobby project. It is **ad-hoc signed** (not notarized by Apple), which triggers Gatekeeper's malware check. The app runs **100% locally** — no data leaves your machine — but Apple's default policy flags all non-notarized software. Trusting it once (right-click → Open) adds a permanent exception. For full transparency, [browse the source](https://github.com/petekaik/clairvoyant-optics).
 
 ### Option B: From Source (developers)
 
@@ -50,20 +49,48 @@ cd clairvoyant-optics
 pip install -e .
 ```
 
-### Configure
+## Configuration
+
+Copy the example config and edit:
 
 ```bash
 cp .env.example .env
 # Edit .env with your camera stream URLs
 ```
 
-### 3. Download ML models
+### Camera Setup
 
-```bash
-python download_models.py
+```ini
+# Cameras (CAM1, CAM2, …, CAM9)
+CAM1_STREAM=http://192.168.1.100:8888/front-yard/index.m3u8
+CAM1_SNAP=https://192.168.1.101/snap.jpeg
+CAM1_NAME=front_yard
+
+# MQTT (optional — Home Assistant)
+# Leave MQTT_BROKER empty to run without HA
+MQTT_BROKER=
+MQTT_PORT=1883
+MQTT_USERNAME=
+MQTT_PASSWORD=
+
+# Detection thresholds
+PERSON_DETECT_CONFIDENCE=0.5
+FACE_DETECT_CONFIDENCE=0.7
+FACE_RECOGNITION_THRESHOLD=0.6
+FRAME_INTERVAL=5
+
+# Notifications
+NOTIFICATION_SOUND_FAMILY=default   # macOS sound for family
+NOTIFICATION_SOUND_ALERT=alarm      # macOS sound for strangers
+
+# Web dashboard
+WEB_UI_PORT=8765
+WEB_UI_HOST=127.0.0.1
 ```
 
-### 4. Import faces from Photos.app
+## Enrolling Faces
+
+### From Photos.app (automatic)
 
 ```bash
 clairvoyant import-from-photos
@@ -79,13 +106,13 @@ mkdir -p photos/alice
 clairvoyant enroll "Alice" photos/alice/
 ```
 
-### 5. Start
+## Running
 
 ```bash
 clairvoyant start
 ```
 
-This launches the detection pipeline, menubar app, and web dashboard.
+Launches the detection pipeline, menubar app, and web dashboard.
 
 ## Commands
 
@@ -129,42 +156,11 @@ src/
 
 With 2 cameras active, CPU load stays around 15-25%.
 
-## Configuration Reference
-
-```ini
-# Cameras (CAM1, CAM2, ..., CAM9)
-CAM1_STREAM=http://192.168.1.100:8888/front-yard/index.m3u8
-CAM1_SNAP=https://192.168.1.101/snap.jpeg
-CAM1_NAME=front_yard
-
-# MQTT (optional — Home Assistant)
-# Leave MQTT_BROKER empty to run without HA
-MQTT_BROKER=
-MQTT_PORT=1883
-MQTT_USERNAME=
-MQTT_PASSWORD=
-
-# Detection thresholds
-PERSON_DETECT_CONFIDENCE=0.5
-FACE_DETECT_CONFIDENCE=0.7
-FACE_RECOGNITION_THRESHOLD=0.6
-FRAME_INTERVAL=5
-
-# Notifications
-NOTIFICATION_SOUND_FAMILY=default   # macOS sound for family
-NOTIFICATION_SOUND_ALERT=alarm      # macOS sound for strangers
-# NOTIFICATION_DND_START=22:00      # Do Not Disturb start (optional)
-# NOTIFICATION_DND_END=07:00        # Do Not Disturb end (optional)
-
-# Web dashboard
-WEB_UI_PORT=8765
-WEB_UI_HOST=127.0.0.1
-```
-
 ## Known Limitations
 
 - **Photos.app iCloud** — If "Optimize Mac Storage" is enabled, most photos are iCloud-only and cannot be used for face import. Use manual enrollment or download originals to your Mac.
 - **Self-signed camera certs** — Snap JPEG endpoints with self-signed certificates work but require `verify=False`.
+- **Gatekeeper warning** — macOS flags the app on first launch (see "Why does macOS block it?" above). Right-click → Open once to trust it permanently.
 - **Menubar app** requires `rumps` (macOS-only, included in requirements).
 
 ## Privacy & Security

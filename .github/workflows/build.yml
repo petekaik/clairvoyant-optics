@@ -45,6 +45,7 @@ jobs:
             --name=Clairvoyant-Optics \
             --onedir \
             --windowed \
+            --icon=icon.icns \
             --osx-bundle-identifier=fi.kaikkonen.clairvoyant-optics \
             --add-data "src:src" \
             --add-data "models:models" \
