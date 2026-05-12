@@ -20,7 +20,7 @@ try:
 except ImportError:
     rumps = None
 
-VERSION = "4.0.2"
+VERSION = "4.2.0"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"

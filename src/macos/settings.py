@@ -17,7 +17,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox
 
-VERSION = "4.0.2"
+VERSION = "4.2.0"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
@@ -33,6 +33,14 @@ DEFAULTS = {
     "home_ssids": "",
     "pause_when_away": False,
     "log_level": "INFO",
+    "cameras": [],
+    "notifications_enabled": True,
+    "notify_on_family": True,
+    "notify_on_unknown": True,
+    "notification_sound_family": "default",
+    "notification_sound_alert": "alarm",
+    "notification_dnd_start": "",
+    "notification_dnd_end": "",
 }
 
 
@@ -103,8 +111,8 @@ class SettingsWindow:
 
         self._root.title("Clairvoyant-Optics Settings")
         self._root.configure(bg="#1c1c1e")
-        self._root.geometry("580x520")
-        self._root.minsize(480, 400)
+        self._root.geometry("660x580")
+        self._root.minsize(520, 480)
         self._root.withdraw()  # start hidden, shown after mainloop starts
 
         self._cfg = load_config()
@@ -179,6 +187,8 @@ class SettingsWindow:
 
         self._build_general_tab()
         self._build_behavior_tab()
+        self._build_streams_tab()
+        self._build_notifications_tab()
         self._build_advanced_tab()
 
         # Status bar
@@ -226,6 +236,217 @@ class SettingsWindow:
         self._mk_toggle(tab, "Confirm Before Quit",
                         "Ask for confirmation before quitting the application",
                         "confirm_quit")
+
+    def _build_streams_tab(self):
+        tab = tk.Frame(self._notebook, bg="#1c1c1e")
+        self._notebook.add(tab, text="  Streams  ")
+
+        # Scrollable canvas for camera list
+        canvas = tk.Canvas(tab, bg="#1c1c1e", highlightthickness=0)
+        scrollbar = tk.Scrollbar(tab, orient="vertical", command=canvas.yview)
+        self._streams_frame = tk.Frame(canvas, bg="#1c1c1e")
+
+        self._streams_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=self._streams_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Add Camera button
+        add_btn = tk.Button(tab, text="+ Add Camera", bg="#0071e3", fg="#ffffff",
+                            font=("SF Pro Text", 12, "bold"), relief="flat",
+                            command=self._add_camera)
+        add_btn.pack(pady=(0, 8), ipadx=12, ipady=4)
+
+        self._refresh_streams()
+
+    def _add_camera(self):
+        """Add empty camera row."""
+        cameras = self._cfg.get("cameras", [])
+        default_name = f"Camera {len(cameras) + 1}"
+        cameras.append({
+            "name": default_name,
+            "stream_url": "",
+            "snap_url": "",
+        })
+        self._cfg["cameras"] = cameras
+        save_config(self._cfg)
+        self._refresh_streams()
+
+    def _remove_camera(self, idx: int):
+        """Remove camera by index."""
+        cameras = self._cfg.get("cameras", [])
+        if 0 <= idx < len(cameras):
+            cameras.pop(idx)
+            self._cfg["cameras"] = cameras
+            save_config(self._cfg)
+            self._refresh_streams()
+
+    def _refresh_streams(self):
+        """Rebuild stream rows from config."""
+        for w in self._streams_frame.winfo_children():
+            w.destroy()
+
+        cameras = self._cfg.get("cameras", [])
+        if not cameras:
+            tk.Label(self._streams_frame,
+                     text="No cameras configured.\\nClick '+ Add Camera' to add one.",
+                     font=("SF Pro Text", 11), fg="#8e8e93", bg="#1c1c1e",
+                     justify="center").pack(pady=(40, 0))
+            return
+
+        for i, cam in enumerate(cameras):
+            self._mk_camera_row(i, cam)
+
+    def _mk_camera_row(self, idx: int, cam: dict):
+        """Create editable row for one camera."""
+        row = tk.Frame(self._streams_frame, bg="#2c2c2e", bd=0)
+        row.pack(fill="x", pady=(8, 0), padx=4, ipadx=8, ipady=6)
+
+        # Camera name header + remove button
+        hdr = tk.Frame(row, bg="#2c2c2e")
+        hdr.pack(fill="x")
+
+        name_var = tk.StringVar(value=cam.get("name", f"Camera {idx+1}"))
+        name_entry = tk.Entry(hdr, textvariable=name_var,
+                              bg="#2c2c2e", fg="#ffffff", insertbackground="#ffffff",
+                              font=("SF Pro Text", 13, "bold"),
+                              relief="flat", width=25)
+        name_entry.pack(side="left")
+        name_entry.bind("<FocusOut>",
+                        lambda e, i=idx, v=name_var: self._update_cam_field(i, "name", v.get()))
+        name_entry.bind("<Return>",
+                        lambda e, i=idx, v=name_var: self._update_cam_field(i, "name", v.get()))
+
+        remove_btn = tk.Button(hdr, text="✕", bg="#ff375f", fg="#ffffff",
+                               font=("SF Pro Text", 10, "bold"), relief="flat",
+                               command=lambda i=idx: self._remove_camera(i))
+        remove_btn.pack(side="right", padx=(8, 0), ipadx=4, ipady=0)
+
+        # Stream URL
+        tk.Label(row, text="Stream URL (HLS/RTSP)",
+                 font=("SF Pro Text", 10), fg="#8e8e93", bg="#2c2c2e").pack(anchor="w", pady=(8, 2))
+        stream_var = tk.StringVar(value=cam.get("stream_url", ""))
+        stream_entry = tk.Entry(row, textvariable=stream_var,
+                                bg="#1c1c1e", fg="#ffffff", insertbackground="#ffffff",
+                                font=("SF Mono", 11), relief="flat")
+        stream_entry.pack(fill="x", ipady=3)
+        stream_entry.bind("<FocusOut>",
+                          lambda e, i=idx, v=stream_var: self._update_cam_field(i, "stream_url", v.get()))
+        stream_entry.bind("<Return>",
+                          lambda e, i=idx, v=stream_var: self._update_cam_field(i, "stream_url", v.get()))
+
+        # Snap URL
+        tk.Label(row, text="Snap URL (JPEG still)",
+                 font=("SF Pro Text", 10), fg="#8e8e93", bg="#2c2c2e").pack(anchor="w", pady=(8, 2))
+        snap_var = tk.StringVar(value=cam.get("snap_url", ""))
+        snap_entry = tk.Entry(row, textvariable=snap_var,
+                              bg="#1c1c1e", fg="#ffffff", insertbackground="#ffffff",
+                              font=("SF Mono", 11), relief="flat")
+        snap_entry.pack(fill="x", ipady=3)
+        snap_entry.bind("<FocusOut>",
+                        lambda e, i=idx, v=snap_var: self._update_cam_field(i, "snap_url", v.get()))
+        snap_entry.bind("<Return>",
+                        lambda e, i=idx, v=snap_var: self._update_cam_field(i, "snap_url", v.get()))
+
+    def _update_cam_field(self, idx: int, field: str, value: str):
+        """Update single camera field and save."""
+        cameras = self._cfg.get("cameras", [])
+        if 0 <= idx < len(cameras):
+            cameras[idx][field] = value
+            self._cfg["cameras"] = cameras
+            save_config(self._cfg)
+            self._status_label.configure(text=f"✓ Saved: {cameras[idx].get('name', 'camera')} → {field}")
+
+    def _build_notifications_tab(self):
+        tab = tk.Frame(self._notebook, bg="#1c1c1e")
+        self._notebook.add(tab, text="  Notifications  ")
+
+        self._mk_toggle(tab, "Enable Notifications",
+                        "Send macOS notifications for detected persons",
+                        "notifications_enabled")
+        self._mk_toggle(tab, "Notify on Family Members",
+                        "Notification when a known family member is detected",
+                        "notify_on_family")
+        self._mk_toggle(tab, "Notify on Unknown Persons",
+                        "Alert when an unknown person is detected",
+                        "notify_on_unknown")
+
+        # Sound selectors
+        tk.Label(tab, text="Notification Sounds",
+                 font=("SF Pro Text", 14, "bold"),
+                 fg="#ffffff", bg="#1c1c1e").pack(anchor="w", pady=(24, 8))
+
+        sounds = ["default", "alarm", "basso", "blow", "bottle", "frog",
+                  "funk", "glass", "hero", "morse", "ping", "pop",
+                  "purr", "sosumi", "submarine", "tink"]
+
+        # Family sound
+        row1 = tk.Frame(tab, bg="#1c1c1e")
+        row1.pack(fill="x", pady=(4, 0))
+        tk.Label(row1, text="Family Member Sound",
+                 font=("SF Pro Text", 11),
+                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
+        fam_var = tk.StringVar(value=self._cfg.get("notification_sound_family", "default"))
+        fam_opt = tk.OptionMenu(row1, fam_var, *sounds,
+                                command=lambda v: self._set("notification_sound_family", v))
+        fam_opt.configure(bg="#2c2c2e", fg="#ffffff",
+                          activebackground="#3c3c3e", activeforeground="#ffffff",
+                          font=("SF Pro Text", 11))
+        fam_opt.pack(side="right")
+
+        # Alert sound
+        row2 = tk.Frame(tab, bg="#1c1c1e")
+        row2.pack(fill="x", pady=(8, 0))
+        tk.Label(row2, text="Unknown Person Alert Sound",
+                 font=("SF Pro Text", 11),
+                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
+        alert_var = tk.StringVar(value=self._cfg.get("notification_sound_alert", "alarm"))
+        alert_opt = tk.OptionMenu(row2, alert_var, *sounds,
+                                  command=lambda v: self._set("notification_sound_alert", v))
+        alert_opt.configure(bg="#2c2c2e", fg="#ffffff",
+                            activebackground="#3c3c3e", activeforeground="#ffffff",
+                            font=("SF Pro Text", 11))
+        alert_opt.pack(side="right")
+
+        # Do Not Disturb
+        tk.Label(tab, text="Do Not Disturb Schedule",
+                 font=("SF Pro Text", 14, "bold"),
+                 fg="#ffffff", bg="#1c1c1e").pack(anchor="w", pady=(24, 8))
+
+        dnd_frame = tk.Frame(tab, bg="#1c1c1e")
+        dnd_frame.pack(fill="x", pady=(4, 0))
+        tk.Label(dnd_frame, text="Start (HH:MM)",
+                 font=("SF Pro Text", 11),
+                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
+        dnd_start_var = tk.StringVar(value=self._cfg.get("notification_dnd_start", ""))
+        dnd_start_entry = tk.Entry(dnd_frame, textvariable=dnd_start_var,
+                                   bg="#2c2c2e", fg="#ffffff", insertbackground="#ffffff",
+                                   font=("SF Mono", 12), relief="flat", width=8)
+        dnd_start_entry.pack(side="right")
+        dnd_start_entry.bind("<FocusOut>",
+                             lambda e, v=dnd_start_var: self._set("notification_dnd_start", v.get()))
+        dnd_start_entry.bind("<Return>",
+                             lambda e, v=dnd_start_var: self._set("notification_dnd_start", v.get()))
+
+        dnd_end_frame = tk.Frame(tab, bg="#1c1c1e")
+        dnd_end_frame.pack(fill="x", pady=(8, 0))
+        tk.Label(dnd_end_frame, text="End (HH:MM)",
+                 font=("SF Pro Text", 11),
+                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
+        dnd_end_var = tk.StringVar(value=self._cfg.get("notification_dnd_end", ""))
+        dnd_end_entry = tk.Entry(dnd_end_frame, textvariable=dnd_end_var,
+                                 bg="#2c2c2e", fg="#ffffff", insertbackground="#ffffff",
+                                 font=("SF Mono", 12), relief="flat", width=8)
+        dnd_end_entry.pack(side="right")
+        dnd_end_entry.bind("<FocusOut>",
+                           lambda e, v=dnd_end_var: self._set("notification_dnd_end", v.get()))
+        dnd_end_entry.bind("<Return>",
+                           lambda e, v=dnd_end_var: self._set("notification_dnd_end", v.get()))
 
     def _build_advanced_tab(self):
         tab = tk.Frame(self._notebook, bg="#1c1c1e")
