@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""Clairvoyant-Optics v4.0.2 — Menu bar application (rumps).
+
+This is the main app. It lives in the macOS menu bar (top-right).
+No Dock icon. Settings window runs as a separate process.
+
+Architecture:
+  app.py (rumps, LSUIElement=True) → spawns → settings.py (tkinter)
+  Communication: SIGUSR1 = show settings, SIGTERM = quit settings
+"""
+
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+try:
+    import rumps
+except ImportError:
+    rumps = None
+
+VERSION = "4.0.2"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+CONFIG_DIR = Path.home() / ".clairvoyant-optics"
+CONFIG_FILE = CONFIG_DIR / "config.yaml"
+APP_PID_FILE = CONFIG_DIR / "app.pid"
+SETTINGS_PID_FILE = CONFIG_DIR / "settings.pid"
+ASSETS = PROJECT_ROOT / "assets"
+
+APP_BUNDLE_ID = "fi.kaikkonen.clairvoyant-optics"
+LAUNCH_AGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{APP_BUNDLE_ID}.plist"
+
+DEFAULTS = {
+    "start_minimized": True,
+    "launch_at_login": False,
+    "close_to_menu_bar": True,
+    "confirm_quit": False,
+    "auto_update": False,
+    "error_reporting": False,
+    "pause_on_battery": False,
+    "home_ssids": "",
+    "pause_when_away": False,
+    "log_level": "INFO",
+}
+
+# ── Config helpers ──────────────────────────────────────────
+
+def _load_yaml(path: Path) -> dict:
+    try:
+        import yaml
+        if path.exists():
+            data = yaml.safe_load(open(path))
+            return data if isinstance(data, dict) else {}
+    except ImportError:
+        pass
+    return {}
+
+
+def load_config() -> dict:
+    cfg = dict(DEFAULTS)
+    cfg.update(_load_yaml(CONFIG_FILE))
+    return cfg
+
+
+# ── Launch at Login (LaunchAgent plist) ─────────────────────
+
+def manage_launch_at_login(enable: bool):
+    LAUNCH_AGENT_PLIST.parent.mkdir(parents=True, exist_ok=True)
+    if enable:
+        plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{APP_BUNDLE_ID}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{sys.executable}</string>
+        <string>{PROJECT_ROOT / "src" / "macos" / "app.py"}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>"""
+        LAUNCH_AGENT_PLIST.write_text(plist)
+    else:
+        LAUNCH_AGENT_PLIST.unlink(missing_ok=True)
+
+
+# ── Settings process management ─────────────────────────────
+
+def _read_pid(path: Path) -> int | None:
+    try:
+        if path.exists():
+            return int(path.read_text().strip())
+    except (ValueError, OSError):
+        pass
+    return None
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def spawn_settings(debug: bool = False) -> bool:
+    """Spawn settings window process. Returns True on success."""
+    script = PROJECT_ROOT / "src" / "macos" / "settings.py"
+    if not script.exists():
+        return False
+
+    python = sys.executable
+    kwargs = {"stdout": None if debug else subprocess.DEVNULL,
+              "stderr": None if debug else subprocess.DEVNULL}
+    proc = subprocess.Popen([python, str(script)], **kwargs)
+    SETTINGS_PID_FILE.write_text(str(proc.pid))
+    return True
+
+
+def show_settings() -> bool:
+    """Bring settings window to front. Spawn if not running."""
+    pid = _read_pid(SETTINGS_PID_FILE)
+    if pid and _pid_alive(pid):
+        os.kill(pid, signal.SIGUSR1)
+        return True
+    # Spawn — settings.py shows itself automatically after hide-from-dock
+    return spawn_settings()
+
+
+def quit_settings():
+    """Terminate settings process."""
+    pid = _read_pid(SETTINGS_PID_FILE)
+    if pid and _pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+            os.kill(pid, signal.SIGKILL)  # force if SIGTERM ignored
+        except OSError:
+            pass
+    SETTINGS_PID_FILE.unlink(missing_ok=True)
+
+
+# ── Menu Bar App ────────────────────────────────────────────
+
+class ClairvoyantApp(rumps.App):
+
+    def __init__(self):
+        icon = str(ASSETS / "eye_22.png") if (ASSETS / "eye_22.png").exists() else None
+        super().__init__(name="Clairvoyant-Optics", title="", icon=icon, quit_button=None)
+        self._build_menu()
+
+    def _build_menu(self):
+        self.menu.clear()
+
+        settings = rumps.MenuItem("Settings")
+        settings.set_callback(self._on_settings)
+        self.menu.add(settings)
+
+        self.menu.add(rumps.separator)
+
+        quit_item = rumps.MenuItem("Quit Clairvoyant-Optics")
+        quit_item.set_callback(self._on_quit)
+        self.menu.add(quit_item)
+
+    def _on_settings(self, sender):
+        show_settings()
+
+    def _on_quit(self, sender):
+        quit_settings()
+        APP_PID_FILE.unlink(missing_ok=True)
+        rumps.quit_application()
+
+
+# ── Main ────────────────────────────────────────────────────
+
+def _on_sigusr2(signum, frame):
+    """Settings window notified us to reload config."""
+    cfg = load_config()
+    manage_launch_at_login(cfg.get("launch_at_login", False))
+
+
+def main():
+    if rumps is None:
+        print("ERROR: rumps not installed. Run: pip install rumps", file=sys.stderr)
+        sys.exit(1)
+
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    APP_PID_FILE.write_text(str(os.getpid()))
+
+    signal.signal(signal.SIGUSR2, _on_sigusr2)
+
+    cfg = load_config()
+    manage_launch_at_login(cfg.get("launch_at_login", False))
+
+    ClairvoyantApp().run()
+
+
+if __name__ == "__main__":
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        sys.path.insert(0, sys._MEIPASS)
+    main()

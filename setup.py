@@ -1,51 +1,46 @@
-"""setup.py — py2app-konfiguraatio macOS .app-bundlelle.
+"""setup.py — py2app configuration for minimal macOS .app bundle v4.0.2.
 
-Käyttö: python setup.py py2app
+Usage: python setup.py py2app
+
+Main app: src/macos/app.py (rumps menu bar app, LSUIElement=True = no Dock icon).
+Settings window (src/macos/settings.py) runs as a separate process.
 """
 
 import sys
 from pathlib import Path
 from setuptools import setup
 
-# Versio version.py:stä tai oletus
 version_file = Path(__file__).parent / "src" / "version.py"
 if version_file.exists():
     with open(version_file) as f:
         exec(f.read())
 else:
-    VERSION = "2.1.0"
+    VERSION = "4.0.2"
 
-APP = ["src/macos/menubar_app.py"]
+APP = ["src/macos/app.py"]
 DATA_FILES = []
 OPTIONS = {
     "argv_emulation": False,
     "packages": [
-        "rumps", "cv2", "numpy", "requests",
-        "insightface", "onnxruntime", "ultralytics",
-        "fastapi", "uvicorn", "macos_notifications",
-        "osxphotos",
+        "rumps",
+        "yaml",
+        "tkinter",
     ],
     "includes": [
-        "src", "src.cli", "src.main", "src.config",
-        "src.recognition", "src.detection", "src.streams",
-        "src.integration", "src.utils", "src.macos",
+        "src.macos",
     ],
-    "excludes": [
-        "tkinter", "PyQt5", "PySide2", "wx",
-        "matplotlib", "scipy", "pandas",
-    ],
+    "excludes": [],
     "plist": {
         "CFBundleName": "Clairvoyant-Optics",
         "CFBundleDisplayName": "Clairvoyant-Optics",
         "CFBundleIdentifier": "fi.kaikkonen.clairvoyant-optics",
         "CFBundleVersion": VERSION,
         "CFBundleShortVersionString": VERSION,
-        "LSUIElement": True,  # Menubar-only, ei Dock-kuvaketta
+        "LSUIElement": True,  # No Dock icon — menu bar only
         "NSHighResolutionCapable": True,
     },
 }
 
-# Iconfile vain jos tiedosto on olemassa
 icon_path = Path("assets/icon.icns")
 if icon_path.exists() and icon_path.stat().st_size > 100:
     OPTIONS["iconfile"] = "assets/icon.icns"
