@@ -16,7 +16,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "4.2.1"
+VERSION = "4.2.2"
 
 # ── paths ──────────────────────────────────────────────────────────────
 IS_BUNDLED = getattr(sys, "frozen", False)
@@ -72,15 +72,6 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     _save_yaml(CONFIG_FILE, cfg)
-
-# ── dock hiding ────────────────────────────────────────────────────────
-def _hide_from_dock() -> bool:
-    """Transform this process to a UIElement so it gets no Dock tile."""
-    import ctypes, ctypes.util
-    carbon = ctypes.CDLL(ctypes.util.find_library("Carbon"))
-    psn = (ctypes.c_ulong * 2)(0, 0)
-    carbon.GetCurrentProcess(ctypes.byref(psn))
-    return carbon.TransformProcessType(ctypes.byref(psn), 4) == 0
 
 # ── macOS semantic colour palette ──────────────────────────────────────
 # We replicate the system semantic colours so the app looks native even
@@ -147,7 +138,12 @@ class SettingsWindow:
     def __init__(self) -> None:
         self._cfg = load_config()
         self._setup_root()
-        _hide_from_dock()
+        # NOTE: Do NOT call _hide_from_dock() here.
+        # TransformProcessType(kProcessTransformToUIElementApplication) breaks
+        # tkinter window rendering on macOS — the window becomes invisible and
+        # unresponsive. The main app (app.py) already uses LSUIElement=True in
+        # Info.plist; child python processes get normal Dock behavior, which is
+        # correct for a settings window.
         self._detect_dark_mode()
         self._col = _mac_colors(self._dark)
         self._apply_window_theme()

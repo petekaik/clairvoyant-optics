@@ -20,7 +20,7 @@ try:
 except ImportError:
     rumps = None
 
-VERSION = "4.2.1"
+VERSION = "4.2.2"
 
 # Bundle-aware paths
 IS_BUNDLED = getattr(sys, "frozen", False) or (

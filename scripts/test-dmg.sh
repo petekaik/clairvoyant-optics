@@ -340,17 +340,15 @@ APPLESCRIPT
     if [ -n "$DIRECT_WINDOW" ]; then
         pass "Settings-ikkuna löytyi (suora spawn): $DIRECT_WINDOW"
         SETTINGS_SPAWNED=true
-        # Clean up direct-spawned settings
-        kill $SETTINGS_DIRECT_PID 2>/dev/null || true
+        # Keep settings alive for Phase 7 cleanup
     else
         kill $SETTINGS_DIRECT_PID 2>/dev/null || true
     fi
 fi
 
-# Strategy C: PID file check (primary — tkinter UIElement windows are invisible to System Events)
-SETTINGS_PID_FILE="$HOME/.clairvoyant-optics/settings.pid"
+# Strategy C: PID file check (fallback if window detection fails)
 if ! $SETTINGS_SPAWNED; then
-    info "Tarkistetaan PID-tiedosto (tkinter UIElement = ei näy System Eventsissä)..."
+    SETTINGS_PID_FILE="$HOME/.clairvoyant-optics/settings.pid"
     if [ -f "$SETTINGS_PID_FILE" ]; then
         SETTINGS_PID=$(cat "$SETTINGS_PID_FILE")
         if kill -0 "$SETTINGS_PID" 2>/dev/null; then
