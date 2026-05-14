@@ -20,13 +20,30 @@ try:
 except ImportError:
     rumps = None
 
-VERSION = "4.2.0"
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+VERSION = "4.2.1"
+
+# Bundle-aware paths
+IS_BUNDLED = getattr(sys, "frozen", False) or (
+    # Detect bundle even when running via python app.py directly
+    "Contents/Resources" in str(Path(__file__).resolve())
+)
+if IS_BUNDLED:
+    # py2app bundle: resources are alongside app.py in Contents/Resources/
+    BUNDLE_DIR = Path(__file__).resolve().parent
+    BUNDLE_CONTENTS = BUNDLE_DIR.parent
+    ASSETS = BUNDLE_DIR
+    SETTINGS_SCRIPT = BUNDLE_DIR / "settings.py"
+    BUNDLED_PYTHON = BUNDLE_CONTENTS / "MacOS" / "python"
+else:
+    # Development mode
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+    ASSETS = PROJECT_ROOT / "assets"
+    SETTINGS_SCRIPT = PROJECT_ROOT / "src" / "macos" / "settings.py"
+
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 APP_PID_FILE = CONFIG_DIR / "app.pid"
 SETTINGS_PID_FILE = CONFIG_DIR / "settings.pid"
-ASSETS = PROJECT_ROOT / "assets"
 
 APP_BUNDLE_ID = "fi.kaikkonen.clairvoyant-optics"
 LAUNCH_AGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{APP_BUNDLE_ID}.plist"
@@ -68,6 +85,15 @@ def load_config() -> dict:
 def manage_launch_at_login(enable: bool):
     LAUNCH_AGENT_PLIST.parent.mkdir(parents=True, exist_ok=True)
     if enable:
+        # In bundle mode, use the .app bundle executable; in dev, use venv python + source
+        if IS_BUNDLED:
+            app_exec = str(BUNDLE_CONTENTS / "MacOS" / "Clairvoyant-Optics")
+            program_args = f"        <string>{app_exec}</string>"
+        else:
+            py = sys.executable
+            script = PROJECT_ROOT / "src" / "macos" / "app.py"
+            program_args = f"        <string>{py}</string>\n        <string>{script}</string>"
+
         plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -77,8 +103,7 @@ def manage_launch_at_login(enable: bool):
     <string>{APP_BUNDLE_ID}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{sys.executable}</string>
-        <string>{PROJECT_ROOT / "src" / "macos" / "app.py"}</string>
+{program_args}
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -112,14 +137,13 @@ def _pid_alive(pid: int) -> bool:
 
 def spawn_settings(debug: bool = False) -> bool:
     """Spawn settings window process. Returns True on success."""
-    script = PROJECT_ROOT / "src" / "macos" / "settings.py"
-    if not script.exists():
+    if not SETTINGS_SCRIPT.exists():
         return False
 
-    python = sys.executable
+    python = str(BUNDLED_PYTHON) if IS_BUNDLED else sys.executable
     kwargs = {"stdout": None if debug else subprocess.DEVNULL,
               "stderr": None if debug else subprocess.DEVNULL}
-    proc = subprocess.Popen([python, str(script)], **kwargs)
+    proc = subprocess.Popen([python, str(SETTINGS_SCRIPT)], **kwargs)
     SETTINGS_PID_FILE.write_text(str(proc.pid))
     return True
 
@@ -158,13 +182,15 @@ class ClairvoyantApp(rumps.App):
     def _build_menu(self):
         self.menu.clear()
 
-        settings = rumps.MenuItem("Settings")
+        # macOS convention: "Settings…" with ellipsis, ⌘, shortcut
+        settings = rumps.MenuItem("Settings…", key=",")
         settings.set_callback(self._on_settings)
         self.menu.add(settings)
 
         self.menu.add(rumps.separator)
 
-        quit_item = rumps.MenuItem("Quit Clairvoyant-Optics")
+        # macOS convention: "Quit <AppName>" with ⌘Q
+        quit_item = rumps.MenuItem("Quit Clairvoyant-Optics", key="q")
         quit_item.set_callback(self._on_quit)
         self.menu.add(quit_item)
 

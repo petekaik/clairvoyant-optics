@@ -1,38 +1,39 @@
 #!/usr/bin/env python3
-"""Clairvoyant-Optics v4.0.2 — Settings window (tkinter).
+"""Clairvoyant-Optics v4.2.0 — Settings (macOS HIG).
 
-Runs as a SEPARATE process from app.py.
-No Dock icon — hidden via osascript on startup (LSUIElement only works in .app bundles).
+Architecture
+  Toolbar-based tab navigation (icon + label), modeless instant-apply,
+  close-only window controls, Escape / ⌘. to close.
 
-Communication:
-  SIGUSR1 → deiconify + bring to front
-  SIGTERM → quit
+  Runs as a SEPARATE process from app.py.
+  IPC: SIGUSR1 → show, SIGTERM → quit
 """
 
 import os
 import signal
-import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, messagebox
+from tkinter import ttk
 
-VERSION = "4.2.0"
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+VERSION = "4.2.1"
+
+# ── paths ──────────────────────────────────────────────────────────────
+IS_BUNDLED = getattr(sys, "frozen", False)
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
-DEFAULTS = {
+DEFAULTS: dict = {
+    "log_level": "INFO",
     "start_minimized": True,
-    "launch_at_login": False,
     "close_to_menu_bar": True,
+    "launch_at_login": False,
     "confirm_quit": False,
     "auto_update": False,
     "error_reporting": False,
     "pause_on_battery": False,
-    "home_ssids": "",
     "pause_when_away": False,
-    "log_level": "INFO",
+    "home_ssids": "",
     "cameras": [],
     "notifications_enabled": True,
     "notify_on_family": True,
@@ -43,114 +44,186 @@ DEFAULTS = {
     "notification_dnd_end": "",
 }
 
-
+# ── yaml helpers ───────────────────────────────────────────────────────
 def _load_yaml(path: Path) -> dict:
     try:
         import yaml
         if path.exists():
             data = yaml.safe_load(open(path))
             return data if isinstance(data, dict) else {}
-    except ImportError:
+    except Exception:
         pass
     return {}
 
-
-def _save_yaml(path: Path, data: dict):
+def _save_yaml(path: Path, data: dict) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     try:
         import yaml
         yaml.safe_dump(data, open(path, "w"), default_flow_style=False, allow_unicode=True)
-    except ImportError:
+    except Exception:
         with open(path, "w") as f:
             for k, v in data.items():
                 f.write(f"{k}: {v}\n")
-
 
 def load_config() -> dict:
     cfg = dict(DEFAULTS)
     cfg.update(_load_yaml(CONFIG_FILE))
     return cfg
 
-
-def save_config(cfg: dict):
+def save_config(cfg: dict) -> None:
     _save_yaml(CONFIG_FILE, cfg)
 
-
-def _hide_from_dock():
-    """Hide this process from the macOS Dock using Carbon TransformProcessType.
-
-    Called immediately after tk.Tk() in SettingsWindow.__init__.
-    LSUIElement=True only works in .app bundles.
-    """
-    import ctypes
-    import ctypes.util
-
-    lib = ctypes.CDLL(ctypes.util.find_library("Carbon"))
+# ── dock hiding ────────────────────────────────────────────────────────
+def _hide_from_dock() -> bool:
+    """Transform this process to a UIElement so it gets no Dock tile."""
+    import ctypes, ctypes.util
+    carbon = ctypes.CDLL(ctypes.util.find_library("Carbon"))
     psn = (ctypes.c_ulong * 2)(0, 0)
-    lib.GetCurrentProcess(ctypes.byref(psn))
-    # kProcessTransformToUIElementApplication = 4
-    result = lib.TransformProcessType(ctypes.byref(psn), 4)
-    # Force Dock refresh via NSApp
-    try:
-        from Cocoa import NSApplication
-        NSApp = NSApplication.sharedApplication()
-        NSApp.activateIgnoringOtherApps_(True)
-    except Exception:
-        pass
-    return result == 0  # noErr
+    carbon.GetCurrentProcess(ctypes.byref(psn))
+    return carbon.TransformProcessType(ctypes.byref(psn), 4) == 0
 
+# ── macOS semantic colour palette ──────────────────────────────────────
+# We replicate the system semantic colours so the app looks native even
+# inside tkinter.  All colours have a light-mode default; dark variants
+# are swapped in when DARK_MODE is True.
 
-# ═══════════════════════════════════════════════════════════
-# Settings Window
-# ═══════════════════════════════════════════════════════════
+def _mac_colors(dark: bool) -> dict:
+    if dark:
+        return {
+            "window_bg":         "#1e1e20",
+            "toolbar_bg":        "#262628",
+            "toolbar_selected":  "#3a3a3c",
+            "toolbar_hover":     "#323234",
+            "separator":         "#3a3a3c",
+            "label_primary":     "#f5f5f7",
+            "label_secondary":   "#98989d",
+            "label_tertiary":    "#6e6e73",
+            "control_bg":        "#2c2c2e",
+            "control_active":    "#0a84ff",
+            "entry_bg":          "#1c1c1e",
+            "entry_border":      "#48484a",
+            "toggle_track_off":  "#48484a",
+            "toggle_track_on":   "#0a84ff",
+            "toggle_knob":       "#ffffff",
+            "destructive":       "#ff453a",
+            "success":           "#30d158",
+        }
+    return {
+        "window_bg":         "#f5f5f7",
+        "toolbar_bg":        "#e8e8ec",
+        "toolbar_selected":  "#d1d1d6",
+        "toolbar_hover":     "#dddddf",
+        "separator":         "#c6c6c8",
+        "label_primary":     "#1d1d1f",
+        "label_secondary":   "#6e6e73",
+        "label_tertiary":    "#aeaeb2",
+        "control_bg":        "#ffffff",
+        "control_active":    "#007aff",
+        "entry_bg":          "#ffffff",
+        "entry_border":      "#c6c6c8",
+        "toggle_track_off":  "#aeaeb2",
+        "toggle_track_on":   "#34c759",
+        "toggle_knob":       "#ffffff",
+        "destructive":       "#ff3b30",
+        "success":           "#34c759",
+    }
 
+# ── tab definitions ────────────────────────────────────────────────────
+# Each tab: (id, label, icon_char) — icon is a unicode SF-Symbols analogue
+TABS = [
+    ("general",       "General",        "\u2699"),   # ⚙ gear
+    ("behavior",      "Behavior",       "\u2691"),   # ⚑ flag
+    ("streams",       "Streams",        "\u25B6"),   # ▶ play
+    ("notifications", "Notifications",  "\U0001F514"), # 🔔 bell
+    ("advanced",      "Advanced",       "\u2305"),   # ⌅ enter
+]
+
+# ────────────────────────────────────────────────────────────────────────
+#  SettingsWindow
+# ────────────────────────────────────────────────────────────────────────
 class SettingsWindow:
-    def __init__(self):
-        self._root = tk.Tk()
-        _hide_from_dock()  # immediately after Tk() — remove Dock icon it created
+    """macOS HIG – compliant preferences window."""
 
-        self._root.title("Clairvoyant-Optics Settings")
-        self._root.configure(bg="#1c1c1e")
-        self._root.geometry("660x580")
-        self._root.minsize(520, 480)
-        self._root.withdraw()  # start hidden, shown after mainloop starts
-
+    def __init__(self) -> None:
         self._cfg = load_config()
+        self._setup_root()
+        _hide_from_dock()
+        self._detect_dark_mode()
+        self._col = _mac_colors(self._dark)
+        self._apply_window_theme()
+        self._withdraw_immediately()
         self._setup_signals()
-        self._setup_window_protocol()
-        self._build_ui()
+        self._setup_keyboard()
+        self._build_toolbar()
+        self._build_content_area()
+        self._select_tab("general")
+        # Write PID file so test-dmg.sh and spawn_settings() can track us
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        (CONFIG_DIR / "settings.pid").write_text(str(os.getpid()))
+        self._root.after(16, self._show)  # show on next frame so Tk settles
 
-    def _setup_signals(self):
+    # ── window basics ───────────────────────────────────────────────
+    def _setup_root(self) -> None:
+        self._root = tk.Tk()
+        self._root.title("Clairvoyant-Optics Settings")
+        self._root.geometry("660x580")
+        self._root.minsize(540, 420)
+        self._root.resizable(True, True)
+        self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _detect_dark_mode(self) -> None:
+        """Ask the system accent colour; fall back to light."""
+        self._dark = False
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=2,
+            )
+            self._dark = r.stdout.strip() == "Dark"
+        except Exception:
+            pass
+
+    def _apply_window_theme(self) -> None:
+        self._root.configure(bg=self._col["window_bg"])
+
+    def _withdraw_immediately(self) -> None:
+        self._root.withdraw()
+
+    def _show(self) -> None:
+        self._root.deiconify()
+        self._root.lift()
+        self._root.focus_force()
+
+    # ── signals ────────────────────────────────────────────────────
+    def _setup_signals(self) -> None:
         signal.signal(signal.SIGUSR1, lambda s, f: self._root.after(0, self._show))
-
-        def _on_sigterm(signum, frame):
-            # Clean exit: remove our PID file
+        def _term(signum, frame):
             (CONFIG_DIR / "settings.pid").unlink(missing_ok=True)
             try:
                 self._root.destroy()
             except Exception:
                 pass
             sys.exit(0)
-        signal.signal(signal.SIGTERM, _on_sigterm)
+        signal.signal(signal.SIGTERM, _term)
 
-    def _setup_window_protocol(self):
-        """Red X behavior: close_to_menu_bar → hide, otherwise → quit."""
-        def _on_close():
-            if self._cfg.get("close_to_menu_bar", True):
-                self._root.withdraw()
-            elif self._cfg.get("confirm_quit", False):
-                if messagebox.askyesno("Quit?", "Quit Clairvoyant-Optics?"):
-                    self._quit()
-            else:
-                self._quit()
-        self._root.protocol("WM_DELETE_WINDOW", _on_close)
+    # ── keyboard ────────────────────────────────────────────────────
+    def _setup_keyboard(self) -> None:
+        self._root.bind("<Escape>", lambda e: self._on_close())
+        self._root.bind("<Command-,>", lambda e: self._on_close())
+        self._root.bind("<Command-.>", lambda e: self._on_close())
+        # Swallow Cmd-W so it doesn't propagate weirdly
+        self._root.bind("<Command-w>", lambda e: self._on_close())
 
-    def _show(self):
-        self._root.deiconify()
-        self._root.lift()
-        self._root.focus_force()
+    def _on_close(self) -> None:
+        if self._cfg.get("close_to_menu_bar", True):
+            self._root.withdraw()
+        elif self._cfg.get("confirm_quit", False):
+            self._show_confirm_quit()
+        else:
+            self._quit()
 
-    def _quit(self):
+    def _quit(self) -> None:
         (CONFIG_DIR / "settings.pid").unlink(missing_ok=True)
         try:
             self._root.destroy()
@@ -158,382 +231,490 @@ class SettingsWindow:
             pass
         sys.exit(0)
 
-    # ── UI ──────────────────────────────────────────────────
+    def _show_confirm_quit(self) -> None:
+        top = tk.Toplevel(self._root, bg=self._col["window_bg"])
+        top.title("")
+        top.resizable(False, False)
+        top.transient(self._root)
+        top.grab_set()
+        top.geometry("320x140")
+        # centre on parent
+        top.update_idletasks()
+        px, py = self._root.winfo_x(), self._root.winfo_y()
+        pw, ph = self._root.winfo_width(), self._root.winfo_height()
+        tw, th = top.winfo_width(), top.winfo_height()
+        top.geometry(f"+{px + (pw - tw)//2}+{py + (ph - th)//2}")
 
-    def _build_ui(self):
-        for w in self._root.winfo_children():
-            w.destroy()
+        c = self._col
+        frm = tk.Frame(top, bg=c["window_bg"], padx=20, pady=20)
+        frm.pack(expand=True, fill="both")
+        tk.Label(frm, text="Quit Clairvoyant-Optics?",
+                 font=("SF Pro Text", 13, "bold"), fg=c["label_primary"],
+                 bg=c["window_bg"]).pack(anchor="w")
+        tk.Label(frm, text="The application will stop monitoring cameras.",
+                 font=("SF Pro Text", 11), fg=c["label_secondary"],
+                 bg=c["window_bg"]).pack(anchor="w", pady=(4, 16))
 
-        main = tk.Frame(self._root, bg="#1c1c1e")
-        main.pack(fill="both", expand=True, padx=24, pady=20)
+        btn_row = tk.Frame(frm, bg=c["window_bg"])
+        btn_row.pack(anchor="e")
+        tk.Button(btn_row, text="Cancel", font=("SF Pro Text", 12),
+                  bg=c["control_bg"], fg=c["label_primary"],
+                  relief="flat", padx=16, pady=4,
+                  command=top.destroy).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Quit", font=("SF Pro Text", 12, "bold"),
+                  bg=c["destructive"], fg="#ffffff",
+                  relief="flat", padx=16, pady=4,
+                  command=lambda: [top.destroy(), self._quit()]).pack(side="left")
 
-        # Header
-        hdr = tk.Frame(main, bg="#1c1c1e")
-        hdr.pack(fill="x", pady=(0, 16))
-        tk.Label(hdr, text="\U0001F441 Clairvoyant-Optics",
-                 font=("SF Pro Display", 20, "bold"),
-                 fg="#ffffff", bg="#1c1c1e").pack(side="left")
-        tk.Label(hdr, text=f"v{VERSION}",
-                 font=("SF Pro Text", 11),
-                 fg="#8e8e93", bg="#1c1c1e").pack(side="right", pady=(6, 0))
-
-        self._notebook = ttk.Notebook(main)
-        self._notebook.pack(fill="both", expand=True)
-
-        style = ttk.Style()
-        style.configure("TNotebook", background="#1c1c1e", borderwidth=0)
-        style.configure("TNotebook.Tab", padding=[16, 8], font=("SF Pro Text", 12))
-        style.map("TNotebook.Tab", background=[("selected", "#2c2c2e")])
-
-        self._build_general_tab()
-        self._build_behavior_tab()
-        self._build_streams_tab()
-        self._build_notifications_tab()
-        self._build_advanced_tab()
-
-        # Status bar
-        sf = tk.Frame(main, bg="#1c1c1e")
-        sf.pack(fill="x", pady=(12, 0))
-        self._status_label = tk.Label(
-            sf, text=f"Config: {CONFIG_FILE}",
-            font=("SF Pro Text", 10), fg="#636366", bg="#1c1c1e")
-        self._status_label.pack(side="left")
-        tk.Label(sf, text="Changes save automatically",
-                 font=("SF Pro Text", 10), fg="#636366", bg="#1c1c1e").pack(side="right")
-
-    def _build_general_tab(self):
-        tab = tk.Frame(self._notebook, bg="#1c1c1e")
-        self._notebook.add(tab, text="  General  ")
-
-        row = tk.Frame(tab, bg="#1c1c1e")
-        row.pack(fill="x", pady=(12, 8))
-        tk.Label(row, text="Log Level",
-                 font=("SF Pro Text", 12, "bold"),
-                 fg="#ffffff", bg="#1c1c1e").pack(side="left")
-
-        levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-        var = tk.StringVar(value=self._cfg.get("log_level", "INFO"))
-        opt = tk.OptionMenu(row, var, *levels,
-                            command=lambda v: self._set("log_level", v))
-        opt.configure(bg="#2c2c2e", fg="#ffffff",
-                      activebackground="#3c3c3e", activeforeground="#ffffff",
-                      font=("SF Pro Text", 12))
-        opt.pack(side="right")
-
-    def _build_behavior_tab(self):
-        tab = tk.Frame(self._notebook, bg="#1c1c1e")
-        self._notebook.add(tab, text="  Behavior  ")
-
-        self._mk_toggle(tab, "Start Minimized",
-                        "Launch directly to menu bar (no settings window)",
-                        "start_minimized")
-        self._mk_toggle(tab, "Close to Menu Bar",
-                        "Closing the window hides it to menu bar instead of quitting",
-                        "close_to_menu_bar")
-        self._mk_toggle(tab, "Launch at Login",
-                        "Start automatically when you log in to your Mac",
-                        "launch_at_login")
-        self._mk_toggle(tab, "Confirm Before Quit",
-                        "Ask for confirmation before quitting the application",
-                        "confirm_quit")
-
-    def _build_streams_tab(self):
-        tab = tk.Frame(self._notebook, bg="#1c1c1e")
-        self._notebook.add(tab, text="  Streams  ")
-
-        # Scrollable canvas for camera list
-        canvas = tk.Canvas(tab, bg="#1c1c1e", highlightthickness=0)
-        scrollbar = tk.Scrollbar(tab, orient="vertical", command=canvas.yview)
-        self._streams_frame = tk.Frame(canvas, bg="#1c1c1e")
-
-        self._streams_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    # ── toolbar ─────────────────────────────────────────────────────────
+    def _build_toolbar(self) -> None:
+        c = self._col
+        self._toolbar = tk.Frame(
+            self._root, bg=c["toolbar_bg"], width=170, height=580,
         )
-        canvas.create_window((0, 0), window=self._streams_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self._toolbar.pack(side="left", fill="y")
+        self._toolbar.pack_propagate(False)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # app title at top of sidebar
+        hdr = tk.Frame(self._toolbar, bg=c["toolbar_bg"], pady=18)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="\U0001F441", font=("SF Pro Text", 20),
+                 bg=c["toolbar_bg"], fg=c["label_primary"]).pack()
+        tk.Label(hdr, text="Clairvoyant-Optics",
+                 font=("SF Pro Text", 11, "bold"),
+                 bg=c["toolbar_bg"], fg=c["label_primary"]).pack(pady=(2, 0))
 
-        # Add Camera button
-        add_btn = tk.Button(tab, text="+ Add Camera", bg="#0071e3", fg="#ffffff",
-                            font=("SF Pro Text", 12, "bold"), relief="flat",
-                            command=self._add_camera)
-        add_btn.pack(pady=(0, 8), ipadx=12, ipady=4)
+        # separator
+        sep = tk.Frame(self._toolbar, bg=c["separator"], height=1)
+        sep.pack(fill="x", padx=14, pady=(10, 4))
 
-        self._refresh_streams()
+        # tab buttons
+        self._tab_buttons: dict[str, tk.Frame] = {}
+        for tab_id, label, icon in TABS:
+            btn = tk.Frame(self._toolbar, bg=c["toolbar_bg"],
+                           padx=12, pady=6, cursor="hand2")
+            btn.pack(fill="x")
+            icon_lbl = tk.Label(btn, text=icon, font=("SF Pro Text", 14),
+                                bg=c["toolbar_bg"], fg=c["label_secondary"])
+            icon_lbl.pack(side="left", padx=(4, 8))
+            text_lbl = tk.Label(btn, text=label,
+                                font=("SF Pro Text", 12),
+                                bg=c["toolbar_bg"], fg=c["label_secondary"])
+            text_lbl.pack(side="left")
+            # click handlers
+            for w in (btn, icon_lbl, text_lbl):
+                w.bind("<Button-1>", lambda e, tid=tab_id: self._select_tab(tid))
+                w.bind("<Enter>", lambda e, f=btn: f.configure(bg=c["toolbar_hover"]))
+                w.bind("<Leave>", lambda e, f=btn, tid=tab_id:
+                       f.configure(bg=c["toolbar_selected"] if self._active_tab == tid else c["toolbar_bg"]))
+            self._tab_buttons[tab_id] = btn
+            # store sub-widgets for easy restyle
+            btn._icon = icon_lbl
+            btn._text = text_lbl
 
-    def _add_camera(self):
-        """Add empty camera row."""
+        # version at bottom
+        bot = tk.Frame(self._toolbar, bg=c["toolbar_bg"])
+        bot.pack(side="bottom", fill="x", pady=12)
+        tk.Label(bot, text=f"v{VERSION}", font=("SF Pro Text", 10),
+                 bg=c["toolbar_bg"], fg=c["label_tertiary"]).pack()
+
+    def _select_tab(self, tab_id: str) -> None:
+        c = self._col
+        self._active_tab = tab_id
+        for tid, btn in self._tab_buttons.items():
+            active = tid == tab_id
+            btn.configure(bg=c["toolbar_selected"] if active else c["toolbar_bg"])
+            btn._icon.configure(bg=btn["bg"],
+                                fg=c["label_primary"] if active else c["label_secondary"])
+            btn._text.configure(bg=btn["bg"],
+                                fg=c["label_primary"] if active else c["label_secondary"])
+        self._show_content(tab_id)
+
+    # ── content area ────────────────────────────────────────────────────
+    def _build_content_area(self) -> None:
+        c = self._col
+        self._content_frame = tk.Frame(self._root, bg=c["window_bg"])
+        self._content_frame.pack(side="left", fill="both", expand=True)
+        self._pages: dict[str, tk.Frame] = {}
+        for tab_id, _, _ in TABS:
+            page = tk.Frame(self._content_frame, bg=c["window_bg"])
+            self._pages[tab_id] = page
+
+    def _show_content(self, tab_id: str) -> None:
+        for page in self._pages.values():
+            page.pack_forget()
+        page = self._pages[tab_id]
+        page.pack(fill="both", expand=True, padx=2, pady=2)
+        _clear_frame(page)
+        getattr(self, f"_build_{tab_id}")(page)
+
+    # ── tab: General ────────────────────────────────────────────────────
+    def _build_general(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "General", "Basic application preferences")
+
+        # Log level
+        sf = self._section(parent)
+        self._labeled_option(sf, "Log Level",
+                             self._cfg.get("log_level", "INFO"),
+                             ["DEBUG", "INFO", "WARNING", "ERROR"],
+                             lambda v: self._set("log_level", v))
+
+    # ── tab: Behavior ───────────────────────────────────────────────────
+    def _build_behavior(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Behavior", "How the app starts and stays")
+
+        sf = self._section(parent)
+        self._mac_toggle(sf, "Start Minimized",
+                         "Launch directly to the menu bar",
+                         "start_minimized")
+        self._mac_toggle(sf, "Close to Menu Bar",
+                         "Closing the window hides instead of quitting",
+                         "close_to_menu_bar")
+        self._mac_toggle(sf, "Launch at Login",
+                         "Start automatically when you log in",
+                         "launch_at_login")
+        self._mac_toggle(sf, "Confirm Before Quit",
+                         "Ask for confirmation before quitting",
+                         "confirm_quit")
+
+    # ── tab: Streams ────────────────────────────────────────────────────
+    def _build_streams(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Streams", "Manage camera feeds")
+
+        cameras: list = self._cfg.get("cameras", [])
+        if not cameras:
+            self._streams_empty_state(parent)
+        else:
+            list_frame = tk.Frame(parent, bg=c["window_bg"], padx=20)
+            list_frame.pack(fill="both", expand=True, pady=(4, 0))
+            for i, cam in enumerate(cameras):
+                self._build_camera_card(list_frame, i, cam)
+
+        # + Add Camera — always at bottom
+        add_btn = tk.Button(
+            parent, text="+  Add Camera",
+            font=("SF Pro Text", 13, "bold"),
+            bg=c["control_active"], fg="#ffffff",
+            relief="flat", padx=24, pady=8,
+            activebackground=c["control_active"],
+            activeforeground="#ffffff",
+            command=self._add_camera_from_streams,
+        )
+        add_btn.pack(pady=(14, 20))
+
+    # ── camera card (macOS group-box style) ──────────────────────
+    def _build_camera_card(self, parent: tk.Frame, idx: int, cam: dict) -> None:
+        c = self._col
+        card = tk.Frame(parent, bg=c["control_bg"], bd=0,
+                        highlightbackground=c["entry_border"],
+                        highlightthickness=1)
+        card.pack(fill="x", pady=(0, 10), ipadx=4, ipady=4)
+
+        # ── header row: name + remove button ──────────────────
+        hdr = tk.Frame(card, bg=c["control_bg"])
+        hdr.pack(fill="x", padx=12, pady=(10, 4))
+
+        name = cam.get("name", f"Camera {idx + 1}")
+        name_var = tk.StringVar(value=name)
+        name_ent = tk.Entry(
+            hdr, textvariable=name_var,
+            font=("SF Pro Text", 14, "bold"),
+            bg=c["control_bg"], fg=c["label_primary"],
+            insertbackground=c["label_primary"],
+            relief="flat", bd=0, highlightthickness=0,
+        )
+        name_ent.pack(side="left", fill="x", expand=True)
+        name_ent.bind(
+            "<FocusOut>",
+            lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()),
+        )
+        name_ent.bind(
+            "<Return>",
+            lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()),
+        )
+
+        # remove button — destructive styling
+        rm = tk.Button(
+            hdr, text="\u2715", font=("SF Pro Text", 12, "bold"),
+            bg=c["control_bg"], fg=c["label_tertiary"],
+            activebackground=c["destructive"],
+            activeforeground="#ffffff",
+            relief="flat", padx=6, pady=0, bd=0,
+            command=lambda i=idx: self._remove_camera(i),
+        )
+        rm.pack(side="right")
+        rm.bind("<Enter>", lambda e, b=rm: b.configure(fg=c["destructive"]))
+        rm.bind("<Leave>", lambda e, b=rm: b.configure(fg=c["label_tertiary"]))
+
+        # ── separator ───────────────────────────────────────
+        sep = tk.Frame(card, bg=c["entry_border"], height=1)
+        sep.pack(fill="x", padx=12)
+
+        # ── fields ──────────────────────────────────────────
+        fields_frame = tk.Frame(card, bg=c["control_bg"])
+        fields_frame.pack(fill="x", padx=12, pady=(8, 12))
+
+        self._camera_field(fields_frame, "Stream URL", "stream_url",
+                           cam.get("stream_url", ""), idx)
+        self._camera_field(fields_frame, "Snap URL", "snap_url",
+                           cam.get("snap_url", ""), idx)
+
+    def _camera_field(
+        self, parent: tk.Frame, label: str, field: str,
+        value: str, idx: int,
+    ) -> None:
+        c = self._col
+        tk.Label(
+            parent, text=label,
+            font=("SF Pro Text", 10, "bold"),
+            fg=c["label_secondary"], bg=c["control_bg"],
+        ).pack(anchor="w", pady=(6, 2))
+
+        var = tk.StringVar(value=value)
+        ent = tk.Entry(
+            parent, textvariable=var,
+            font=("SF Mono", 11),
+            bg=c["entry_bg"], fg=c["label_primary"],
+            insertbackground=c["label_primary"],
+            relief="flat", bd=0,
+            highlightbackground=c["entry_border"],
+            highlightcolor=c["control_active"],
+            highlightthickness=1,
+        )
+        ent.pack(fill="x", ipady=5)
+        ent.bind(
+            "<FocusOut>",
+            lambda e, i=idx, f=field, v=var: self._update_camera_field(i, f, v.get()),
+        )
+        ent.bind(
+            "<Return>",
+            lambda e, i=idx, f=field, v=var: self._update_camera_field(i, f, v.get()),
+        )
+
+    # ── empty state ─────────────────────────────────────────────
+    def _streams_empty_state(self, parent: tk.Frame) -> None:
+        c = self._col
+        ph = tk.Frame(parent, bg=c["window_bg"])
+        ph.place(relx=0.5, rely=0.38, anchor="center")
+        tk.Label(
+            ph, text="No Cameras",
+            font=("SF Pro Text", 16, "bold"),
+            fg=c["label_secondary"], bg=c["window_bg"],
+        ).pack()
+        tk.Label(
+            ph, text="Add a camera stream to start monitoring.",
+            font=("SF Pro Text", 12),
+            fg=c["label_tertiary"], bg=c["window_bg"],
+        ).pack(pady=(4, 0))
+
+    # ── camera mutations ────────────────────────────────────────
+    def _add_camera_from_streams(self) -> None:
         cameras = self._cfg.get("cameras", [])
-        default_name = f"Camera {len(cameras) + 1}"
         cameras.append({
-            "name": default_name,
+            "name": f"Camera {len(cameras) + 1}",
             "stream_url": "",
             "snap_url": "",
         })
         self._cfg["cameras"] = cameras
         save_config(self._cfg)
-        self._refresh_streams()
+        self._select_tab("streams")
 
-    def _remove_camera(self, idx: int):
-        """Remove camera by index."""
+    def _remove_camera(self, idx: int) -> None:
         cameras = self._cfg.get("cameras", [])
         if 0 <= idx < len(cameras):
             cameras.pop(idx)
-            self._cfg["cameras"] = cameras
-            save_config(self._cfg)
-            self._refresh_streams()
+        self._cfg["cameras"] = cameras
+        save_config(self._cfg)
+        self._select_tab("streams")
 
-    def _refresh_streams(self):
-        """Rebuild stream rows from config."""
-        for w in self._streams_frame.winfo_children():
-            w.destroy()
-
-        cameras = self._cfg.get("cameras", [])
-        if not cameras:
-            tk.Label(self._streams_frame,
-                     text="No cameras configured.\\nClick '+ Add Camera' to add one.",
-                     font=("SF Pro Text", 11), fg="#8e8e93", bg="#1c1c1e",
-                     justify="center").pack(pady=(40, 0))
-            return
-
-        for i, cam in enumerate(cameras):
-            self._mk_camera_row(i, cam)
-
-    def _mk_camera_row(self, idx: int, cam: dict):
-        """Create editable row for one camera."""
-        row = tk.Frame(self._streams_frame, bg="#2c2c2e", bd=0)
-        row.pack(fill="x", pady=(8, 0), padx=4, ipadx=8, ipady=6)
-
-        # Camera name header + remove button
-        hdr = tk.Frame(row, bg="#2c2c2e")
-        hdr.pack(fill="x")
-
-        name_var = tk.StringVar(value=cam.get("name", f"Camera {idx+1}"))
-        name_entry = tk.Entry(hdr, textvariable=name_var,
-                              bg="#2c2c2e", fg="#ffffff", insertbackground="#ffffff",
-                              font=("SF Pro Text", 13, "bold"),
-                              relief="flat", width=25)
-        name_entry.pack(side="left")
-        name_entry.bind("<FocusOut>",
-                        lambda e, i=idx, v=name_var: self._update_cam_field(i, "name", v.get()))
-        name_entry.bind("<Return>",
-                        lambda e, i=idx, v=name_var: self._update_cam_field(i, "name", v.get()))
-
-        remove_btn = tk.Button(hdr, text="✕", bg="#ff375f", fg="#ffffff",
-                               font=("SF Pro Text", 10, "bold"), relief="flat",
-                               command=lambda i=idx: self._remove_camera(i))
-        remove_btn.pack(side="right", padx=(8, 0), ipadx=4, ipady=0)
-
-        # Stream URL
-        tk.Label(row, text="Stream URL (HLS/RTSP)",
-                 font=("SF Pro Text", 10), fg="#8e8e93", bg="#2c2c2e").pack(anchor="w", pady=(8, 2))
-        stream_var = tk.StringVar(value=cam.get("stream_url", ""))
-        stream_entry = tk.Entry(row, textvariable=stream_var,
-                                bg="#1c1c1e", fg="#ffffff", insertbackground="#ffffff",
-                                font=("SF Mono", 11), relief="flat")
-        stream_entry.pack(fill="x", ipady=3)
-        stream_entry.bind("<FocusOut>",
-                          lambda e, i=idx, v=stream_var: self._update_cam_field(i, "stream_url", v.get()))
-        stream_entry.bind("<Return>",
-                          lambda e, i=idx, v=stream_var: self._update_cam_field(i, "stream_url", v.get()))
-
-        # Snap URL
-        tk.Label(row, text="Snap URL (JPEG still)",
-                 font=("SF Pro Text", 10), fg="#8e8e93", bg="#2c2c2e").pack(anchor="w", pady=(8, 2))
-        snap_var = tk.StringVar(value=cam.get("snap_url", ""))
-        snap_entry = tk.Entry(row, textvariable=snap_var,
-                              bg="#1c1c1e", fg="#ffffff", insertbackground="#ffffff",
-                              font=("SF Mono", 11), relief="flat")
-        snap_entry.pack(fill="x", ipady=3)
-        snap_entry.bind("<FocusOut>",
-                        lambda e, i=idx, v=snap_var: self._update_cam_field(i, "snap_url", v.get()))
-        snap_entry.bind("<Return>",
-                        lambda e, i=idx, v=snap_var: self._update_cam_field(i, "snap_url", v.get()))
-
-    def _update_cam_field(self, idx: int, field: str, value: str):
-        """Update single camera field and save."""
+    def _update_camera_field(self, idx: int, field: str, value: str) -> None:
         cameras = self._cfg.get("cameras", [])
         if 0 <= idx < len(cameras):
             cameras[idx][field] = value
             self._cfg["cameras"] = cameras
             save_config(self._cfg)
-            self._status_label.configure(text=f"✓ Saved: {cameras[idx].get('name', 'camera')} → {field}")
+    def _build_notifications(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Notifications", "Alerts and sounds")
 
-    def _build_notifications_tab(self):
-        tab = tk.Frame(self._notebook, bg="#1c1c1e")
-        self._notebook.add(tab, text="  Notifications  ")
+        sf = self._section(parent)
+        self._mac_toggle(sf, "Enable Notifications",
+                         "Show macOS notifications for detected persons",
+                         "notifications_enabled")
+        self._mac_toggle(sf, "Notify on Family Members",
+                         "Notify when a known family member is detected",
+                         "notify_on_family")
+        self._mac_toggle(sf, "Notify on Unknown Persons",
+                         "Alert when an unknown person is detected",
+                         "notify_on_unknown")
 
-        self._mk_toggle(tab, "Enable Notifications",
-                        "Send macOS notifications for detected persons",
-                        "notifications_enabled")
-        self._mk_toggle(tab, "Notify on Family Members",
-                        "Notification when a known family member is detected",
-                        "notify_on_family")
-        self._mk_toggle(tab, "Notify on Unknown Persons",
-                        "Alert when an unknown person is detected",
-                        "notify_on_unknown")
-
-        # Sound selectors
-        tk.Label(tab, text="Notification Sounds",
-                 font=("SF Pro Text", 14, "bold"),
-                 fg="#ffffff", bg="#1c1c1e").pack(anchor="w", pady=(24, 8))
-
+        sf2 = self._section(parent, "Sounds")
         sounds = ["default", "alarm", "basso", "blow", "bottle", "frog",
                   "funk", "glass", "hero", "morse", "ping", "pop",
                   "purr", "sosumi", "submarine", "tink"]
+        self._labeled_option(sf2, "Family Member Sound",
+                             self._cfg.get("notification_sound_family", "default"),
+                             sounds, lambda v: self._set("notification_sound_family", v))
+        self._labeled_option(sf2, "Unknown Person Alert",
+                             self._cfg.get("notification_sound_alert", "alarm"),
+                             sounds, lambda v: self._set("notification_sound_alert", v))
 
-        # Family sound
-        row1 = tk.Frame(tab, bg="#1c1c1e")
-        row1.pack(fill="x", pady=(4, 0))
-        tk.Label(row1, text="Family Member Sound",
-                 font=("SF Pro Text", 11),
-                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
-        fam_var = tk.StringVar(value=self._cfg.get("notification_sound_family", "default"))
-        fam_opt = tk.OptionMenu(row1, fam_var, *sounds,
-                                command=lambda v: self._set("notification_sound_family", v))
-        fam_opt.configure(bg="#2c2c2e", fg="#ffffff",
-                          activebackground="#3c3c3e", activeforeground="#ffffff",
-                          font=("SF Pro Text", 11))
-        fam_opt.pack(side="right")
+        sf3 = self._section(parent, "Do Not Disturb Schedule")
+        self._labeled_entry(sf3, "Start (HH:MM)",
+                            self._cfg.get("notification_dnd_start", ""),
+                            lambda v: self._set("notification_dnd_start", v))
+        self._labeled_entry(sf3, "End (HH:MM)",
+                            self._cfg.get("notification_dnd_end", ""),
+                            lambda v: self._set("notification_dnd_end", v))
 
-        # Alert sound
-        row2 = tk.Frame(tab, bg="#1c1c1e")
-        row2.pack(fill="x", pady=(8, 0))
-        tk.Label(row2, text="Unknown Person Alert Sound",
-                 font=("SF Pro Text", 11),
-                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
-        alert_var = tk.StringVar(value=self._cfg.get("notification_sound_alert", "alarm"))
-        alert_opt = tk.OptionMenu(row2, alert_var, *sounds,
-                                  command=lambda v: self._set("notification_sound_alert", v))
-        alert_opt.configure(bg="#2c2c2e", fg="#ffffff",
-                            activebackground="#3c3c3e", activeforeground="#ffffff",
-                            font=("SF Pro Text", 11))
-        alert_opt.pack(side="right")
+    # ── tab: Advanced ───────────────────────────────────────────────────
+    def _build_advanced(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Advanced", "Updates, power & networking")
 
-        # Do Not Disturb
-        tk.Label(tab, text="Do Not Disturb Schedule",
-                 font=("SF Pro Text", 14, "bold"),
-                 fg="#ffffff", bg="#1c1c1e").pack(anchor="w", pady=(24, 8))
+        sf = self._section(parent)
+        self._mac_toggle(sf, "Auto-Update",
+                         "Check for updates every 6 hours",
+                         "auto_update")
+        self._mac_toggle(sf, "Error Reporting",
+                         "Send error reports to GitHub Issues automatically",
+                         "error_reporting")
+        self._mac_toggle(sf, "Pause When on Battery",
+                         "Pause recognition on battery power",
+                         "pause_on_battery")
+        self._mac_toggle(sf, "Pause When Away from Home",
+                         "Pause when not connected to home WiFi",
+                         "pause_when_away")
 
-        dnd_frame = tk.Frame(tab, bg="#1c1c1e")
-        dnd_frame.pack(fill="x", pady=(4, 0))
-        tk.Label(dnd_frame, text="Start (HH:MM)",
-                 font=("SF Pro Text", 11),
-                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
-        dnd_start_var = tk.StringVar(value=self._cfg.get("notification_dnd_start", ""))
-        dnd_start_entry = tk.Entry(dnd_frame, textvariable=dnd_start_var,
-                                   bg="#2c2c2e", fg="#ffffff", insertbackground="#ffffff",
-                                   font=("SF Mono", 12), relief="flat", width=8)
-        dnd_start_entry.pack(side="right")
-        dnd_start_entry.bind("<FocusOut>",
-                             lambda e, v=dnd_start_var: self._set("notification_dnd_start", v.get()))
-        dnd_start_entry.bind("<Return>",
-                             lambda e, v=dnd_start_var: self._set("notification_dnd_start", v.get()))
+        sf2 = self._section(parent, "Home WiFi")
+        self._labeled_entry(sf2, "SSIDs (comma-separated)",
+                            self._cfg.get("home_ssids", ""),
+                            lambda v: self._set("home_ssids", v))
 
-        dnd_end_frame = tk.Frame(tab, bg="#1c1c1e")
-        dnd_end_frame.pack(fill="x", pady=(8, 0))
-        tk.Label(dnd_end_frame, text="End (HH:MM)",
-                 font=("SF Pro Text", 11),
-                 fg="#8e8e93", bg="#1c1c1e").pack(side="left")
-        dnd_end_var = tk.StringVar(value=self._cfg.get("notification_dnd_end", ""))
-        dnd_end_entry = tk.Entry(dnd_end_frame, textvariable=dnd_end_var,
-                                 bg="#2c2c2e", fg="#ffffff", insertbackground="#ffffff",
-                                 font=("SF Mono", 12), relief="flat", width=8)
-        dnd_end_entry.pack(side="right")
-        dnd_end_entry.bind("<FocusOut>",
-                           lambda e, v=dnd_end_var: self._set("notification_dnd_end", v.get()))
-        dnd_end_entry.bind("<Return>",
-                           lambda e, v=dnd_end_var: self._set("notification_dnd_end", v.get()))
+    # ── reusable UI primitives ──────────────────────────────────────────
 
-    def _build_advanced_tab(self):
-        tab = tk.Frame(self._notebook, bg="#1c1c1e")
-        self._notebook.add(tab, text="  Advanced  ")
+    def _section_header(self, parent: tk.Frame, title: str, subtitle: str = "") -> None:
+        c = self._col
+        hdr = tk.Frame(parent, bg=c["window_bg"], padx=20)
+        hdr.pack(fill="x", pady=(20, 2))
+        tk.Label(hdr, text=title,
+                 font=("SF Pro Text", 22, "bold"),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(anchor="w")
+        if subtitle:
+            tk.Label(hdr, text=subtitle,
+                     font=("SF Pro Text", 13),
+                     fg=c["label_secondary"], bg=c["window_bg"]).pack(anchor="w", pady=(2, 0))
 
-        self._mk_toggle(tab, "Auto-Update",
-                        "Check for updates every 6 hours",
-                        "auto_update")
-        self._mk_toggle(tab, "Error Reporting",
-                        "Send error reports to GitHub Issues automatically",
-                        "error_reporting")
-        self._mk_toggle(tab, "Pause When on Battery",
-                        "Pause recognition when Mac is on battery power",
-                        "pause_on_battery")
-        self._mk_toggle(tab, "Pause When Away from Home",
-                        "Pause recognition when not connected to home WiFi",
-                        "pause_when_away")
+    def _section(self, parent: tk.Frame, label: str = "") -> tk.Frame:
+        c = self._col
+        sf = tk.Frame(parent, bg=c["window_bg"], padx=20, pady=4)
+        sf.pack(fill="x")
+        if label:
+            tk.Label(sf, text=label,
+                     font=("SF Pro Text", 11, "bold"),
+                     fg=c["label_secondary"], bg=c["window_bg"]).pack(anchor="w", pady=(12, 4))
+        return sf
 
-        # Home SSIDs
-        row = tk.Frame(tab, bg="#1c1c1e")
-        row.pack(fill="x", pady=(20, 4))
-        tk.Label(row, text="Home WiFi SSIDs",
-                 font=("SF Pro Text", 12, "bold"),
-                 fg="#ffffff", bg="#1c1c1e").pack(anchor="w")
-        tk.Label(row,
-                 text="Comma-separated list (e.g. HomeWiFi, CottageWiFi)",
-                 font=("SF Pro Text", 10),
-                 fg="#8e8e93", bg="#1c1c1e").pack(anchor="w", pady=(2, 0))
+    def _mac_toggle(self, parent: tk.Frame, title: str, subtitle: str, key: str) -> None:
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(10, 0))
 
-        entry = tk.Entry(tab, bg="#2c2c2e", fg="#ffffff",
-                         insertbackground="#ffffff",
-                         font=("SF Pro Text", 13), relief="flat", bd=8)
-        entry.insert(0, self._cfg.get("home_ssids", ""))
-        entry.pack(fill="x", ipady=4)
-
-        def _save_ssids(e=None):
-            self._set("home_ssids", entry.get().strip())
-
-        entry.bind("<FocusOut>", _save_ssids)
-        entry.bind("<Return>", _save_ssids)
-
-    def _mk_toggle(self, parent, title: str, desc: str, key: str):
-        row = tk.Frame(parent, bg="#1c1c1e")
-        row.pack(fill="x", pady=(16, 0))
-
-        left = tk.Frame(row, bg="#1c1c1e")
+        left = tk.Frame(row, bg=c["window_bg"])
         left.pack(side="left", fill="x", expand=True)
         tk.Label(left, text=title,
-                 font=("SF Pro Text", 12, "bold"),
-                 fg="#ffffff", bg="#1c1c1e").pack(anchor="w")
-        tk.Label(left, text=desc,
-                 font=("SF Pro Text", 10),
-                 fg="#8e8e93", bg="#1c1c1e").pack(anchor="w", pady=(2, 0))
+                 font=("SF Pro Text", 13),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(anchor="w")
+        tk.Label(left, text=subtitle,
+                 font=("SF Pro Text", 11),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(anchor="w", pady=(1, 0))
 
         var = tk.BooleanVar(value=bool(self._cfg.get(key)))
         cb = tk.Checkbutton(
             row, variable=var,
             command=lambda k=key, v=var: self._set(k, v.get()),
-            bg="#1c1c1e", fg="#ffffff",
-            selectcolor="#1c1c1e",
-            activebackground="#1c1c1e", activeforeground="#ffffff",
-            font=("SF Pro Text", 13))
+            bg=c["window_bg"], fg=c["label_primary"],
+            selectcolor=c["window_bg"],
+            activebackground=c["window_bg"],
+            activeforeground=c["label_primary"],
+            font=("SF Pro Text", 13),
+            bd=0, highlightthickness=0,
+        )
         cb.pack(side="right", padx=(16, 0))
 
-    def _set(self, key: str, value):
+    def _labeled_option(self, parent: tk.Frame, label: str,
+                        value: str, choices: list[str],
+                        callback) -> None:
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(8, 0))
+        tk.Label(row, text=label,
+                 font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+
+        var = tk.StringVar(value=value)
+        menu = tk.OptionMenu(row, var, *choices,
+                             command=lambda v, cb=callback: cb(v))
+        menu.configure(bg=c["entry_bg"], fg=c["label_primary"],
+                       activebackground=c["toolbar_selected"],
+                       activeforeground=c["label_primary"],
+                       font=("SF Pro Text", 12),
+                       relief="flat", bd=0, highlightthickness=0)
+        menu["menu"].configure(bg=c["entry_bg"], fg=c["label_primary"],
+                               font=("SF Pro Text", 12))
+        menu.pack(side="right")
+
+    def _labeled_entry(self, parent: tk.Frame, label: str,
+                       value: str, callback) -> None:
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(8, 0))
+        tk.Label(row, text=label,
+                 font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+
+        var = tk.StringVar(value=value)
+        ent = tk.Entry(row, textvariable=var,
+                       bg=c["entry_bg"], fg=c["label_primary"],
+                       insertbackground=c["label_primary"],
+                       font=("SF Mono", 12),
+                       relief="flat", bd=0,
+                       highlightbackground=c["entry_border"],
+                       highlightcolor=c["control_active"],
+                       highlightthickness=1)
+        ent.pack(side="right", ipadx=6, ipady=4)
+        ent.bind("<FocusOut>", lambda e, cb=callback, v=var: cb(v.get()))
+        ent.bind("<Return>", lambda e, cb=callback, v=var: cb(v.get()))
+
+    # ── config mutation ─────────────────────────────────────────────────
+    def _set(self, key: str, value) -> None:
         self._cfg[key] = value
         save_config(self._cfg)
-        self._status_label.configure(text=f"\u2713 Saved: {key} = {value}")
+        self._notify_app_if_needed(key)
 
-        # Notify app.py to update launch_at_login
-        if key == "launch_at_login":
+    def _notify_app_if_needed(self, key: str) -> None:
+        if key != "launch_at_login":
+            return
+        try:
             app_pid_file = CONFIG_DIR / "app.pid"
-            try:
-                if app_pid_file.exists():
-                    pid = int(app_pid_file.read_text().strip())
-                    os.kill(pid, signal.SIGUSR2)
-            except Exception:
-                pass
+            if app_pid_file.exists():
+                pid = int(app_pid_file.read_text().strip())
+                os.kill(pid, signal.SIGUSR2)
+        except Exception:
+            pass
 
 
-# ═══════════════════════════════════════════════════════════
-# Main
-# ═══════════════════════════════════════════════════════════
+# ── helpers ─────────────────────────────────────────────────────────────
+def _clear_frame(frame: tk.Frame) -> None:
+    for w in frame.winfo_children():
+        w.destroy()
 
+
+# ── main ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
     window = SettingsWindow()
-    window._show()
     window._root.mainloop()

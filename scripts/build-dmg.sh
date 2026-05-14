@@ -38,6 +38,15 @@ fi
 BUNDLE_SIZE=$(du -sh "$APP" | awk '{print $1}')
 echo "✅ .app bundle: $BUNDLE_SIZE"
 
+# ── Copy assets to bundle Resources ──────────────────────────
+
+echo "📁 Copying assets to bundle..."
+RESOURCES="$APP/Contents/Resources"
+cp -f "assets/eye_22.png" "$RESOURCES/"
+cp -f "assets/eye_44.png" "$RESOURCES/"
+cp -f "src/macos/settings.py" "$RESOURCES/"
+echo "   ✅ eye_22.png, eye_44.png, settings.py copied"
+
 # ── Fix missing @rpath dylibs ─────────────────────────────────
 
 FW="$APP/Contents/Frameworks"

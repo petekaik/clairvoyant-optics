@@ -1,0 +1,134 @@
+name: Build & Release DMG
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-build.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install py2app pyyaml rumps
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(python3 -c 'from src.version import VERSION; print(VERSION)')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building v$VERSION"
+
+      - name: Build .app bundle with py2app
+        run: |
+          python3 setup.py py2app || echo "⚠ py2app codesign may have failed — continuing"
+
+      - name: Verify .app exists
+        run: |
+          test -d dist/Clairvoyant-Optics.app || { echo "❌ .app not built"; exit 1; }
+          ls -la dist/Clairvoyant-Optics.app/Contents/MacOS/
+
+      - name: Copy assets to Resources
+        run: |
+          APP="dist/Clairvoyant-Optics.app"
+          RESOURCES="$APP/Contents/Resources"
+          cp -f assets/eye_22.png "$RESOURCES/" || { echo "FATAL: cannot copy eye_22.png"; exit 1; }
+          cp -f assets/eye_44.png "$RESOURCES/" || { echo "FATAL: cannot copy eye_44.png"; exit 1; }
+          cp -f src/macos/settings.py "$RESOURCES/" || { echo "FATAL: cannot copy settings.py"; exit 1; }
+          ls -la "$RESOURCES/eye_22.png" "$RESOURCES/eye_44.png" "$RESOURCES/settings.py"
+
+      - name: Fix @rpath dylibs
+        run: |
+          APP="dist/Clairvoyant-Optics.app"
+          FW="$APP/Contents/Frameworks"
+
+          REQUIRED_LIBS=$(find "$APP/Contents/Resources" -name "*.so" -o -name "*.dylib" 2>/dev/null | \
+            while read f; do otool -L "$f" 2>/dev/null; done | \
+            grep -oE '@rpath/([^ ]+)' | sed 's|@rpath/||' | sort -u)
+
+          echo "Required @rpath libs:"
+          for lib in $REQUIRED_LIBS; do
+            if [ -f "$FW/$lib" ]; then
+              echo "  ✅ $lib"
+            else
+              # Search venv + homebrew
+              SRC=$(find /usr/local/lib /opt/homebrew/lib \
+                  -name "$lib" 2>/dev/null | head -1)
+              if [ -n "${SRC:-}" ]; then
+                cp "$SRC" "$FW/"
+                echo "  📋 $lib (from $SRC)"
+              else
+                echo "  ❌ $lib NOT FOUND"
+              fi
+            fi
+          done
+
+      - name: Ad-hoc codesign (Sequoia compat)
+        run: |
+          APP="dist/Clairvoyant-Optics.app"
+          find "$APP" -type f \( -name "*.dylib" -o -name "*.so" \) \
+              -exec codesign --force --sign - {} \; 2>/dev/null || true
+          codesign --force --sign - "$APP/Contents/MacOS/python" 2>/dev/null || true
+          codesign --force --sign - "$APP/Contents/MacOS/Clairvoyant-Optics" 2>/dev/null || true
+          echo "✅ Signed"
+
+      - name: Package DMG (drag-to-install)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          APP="dist/Clairvoyant-Optics.app"
+          DMG_BUILD="/tmp/cv-dmg-build"
+          DMG_RW="/tmp/cv-rw.dmg"
+          FINAL_DMG="dist/Clairvoyant-Optics-${VERSION}.dmg"
+
+          rm -rf "$DMG_BUILD"
+          mkdir -p "$DMG_BUILD"
+          cp -R "$APP" "$DMG_BUILD/"
+          ln -sf /Applications "$DMG_BUILD/Applications"
+
+          hdiutil create -size 80m -volname "Clairvoyant-Optics" \
+            -srcfolder "$DMG_BUILD" -fs HFS+ -format UDRW "$DMG_RW"
+          hdiutil convert "$DMG_RW" -format UDZO -imagekey zlib-level=9 -o "$FINAL_DMG"
+          rm -f "$DMG_RW"
+
+          ls -lh "$FINAL_DMG"
+          hdiutil verify "$FINAL_DMG" && echo "✅ DMG valid"
+
+      - name: CI Smoke Test (headless)
+        run: |
+          chmod +x scripts/ci-smoke-test.sh
+          ./scripts/ci-smoke-test.sh
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clairvoyant-optics-dmg
+          path: dist/*.dmg
+
+      - name: Create Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
+          generate_release_notes: true
