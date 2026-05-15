@@ -255,47 +255,44 @@ screencapture -x "$EVIDENCE_DIR/03-menu-open.png" 2>/dev/null || true
 sleep 0.5
 
 # Phase 6: Settings Window Test
-# Two strategies:
-#   A) Try ⌘, shortcut (requires rumps menu to accept key event)
-#   B) Spawn settings directly via bundled python (bypasses rumps)
-#   C) Fallback: check if settings process spawned by app.py
+# Three strategies:
+#   A) Try ⌘S shortcut (key changed from comma to 's' in v4.2.3)
+#   B) Settings.app wrapper via open -a (production path — has own window-server)
+#   C) Fallback: PID file check
 
 echo ""
 echo "━━━ Phase 6: Settings Window ━━━"
 
 SETTINGS_SPAWNED=false
 
-# Strategy A: ⌘, shortcut (may fail without keystroke permission — safe to ignore)
+# Strategy A: ⌘S shortcut (requires keystroke permission)
 cat >/tmp/_cv_settings_cmd.scpt <<'ASEOF'
 tell application "Clairvoyant-Optics"
     activate
 end tell
 delay 0.5
 tell application "System Events"
-    keystroke "," using command down
+    keystroke "s" using command down
 end tell
 delay 2
 ASEOF
 osascript /tmp/_cv_settings_cmd.scpt 2>/dev/null || true
 rm -f /tmp/_cv_settings_cmd.scpt
-sleep 2
+sleep 3
 
-# Check for settings window via any accessible process
+# Check for settings window
 SETTINGS_WINDOW=$(osascript -s o 2>/dev/null <<'APPLESCRIPT'
 tell application "System Events"
-    set allProcs to name of every process
-    repeat with procName in allProcs
+    repeat with procName in name of every process
         try
             tell process procName
-                set winNames to name of every window
-                repeat with w in winNames
-                    if w contains "Clairvoyant" or w contains "Settings" then
+                repeat with w in name of every window
+                    if w contains "Clairvoyant" and w contains "Settings" then
                         return procName & ":" & w as string
                     end if
                 end repeat
             end tell
         on error
-            -- skip inaccessible processes
         end try
     end repeat
     return ""
@@ -304,49 +301,40 @@ APPLESCRIPT
 )
 
 if [ -n "$SETTINGS_WINDOW" ]; then
-    pass "Settings-ikkuna löytyi (⌘,): $SETTINGS_WINDOW"
+    pass "Settings-ikkuna löytyi (⌘S): $SETTINGS_WINDOW"
     SETTINGS_SPAWNED=true
 fi
 
-# Strategy B: spawn settings directly if shortcut didn't work
+# Strategy B: Settings.app wrapper (open -a — production spawn path)
 if ! $SETTINGS_SPAWNED; then
-    info "⌘, ei toiminut — spawnataan settings suoraan..."
-    "$BIN/python" "$RESOURCES/settings.py" >/dev/null 2>&1 &
-    SETTINGS_DIRECT_PID=$!
-    sleep 3
+    info "⌘S ei toiminut — käytetään Settings.app wrapperia..."
+    SETTINGS_APP="$RESOURCES/Settings.app"
+    if [ -d "$SETTINGS_APP" ]; then
+        open -a "$SETTINGS_APP"
+        sleep 4
 
-    # Check if direct-spawned window is visible
-    DIRECT_WINDOW=$(osascript -s o 2>/dev/null <<'APPLESCRIPT'
+        WRAPPER_WINDOW=$(osascript -s o 2>/dev/null <<'APPLESCRIPT'
 tell application "System Events"
-    set allProcs to name of every process
-    repeat with procName in allProcs
-        try
-            tell process procName
-                set winNames to name of every window
-                repeat with w in winNames
-                    if w contains "Clairvoyant" or w contains "Settings" then
-                        return procName & ":" & w as string
-                    end if
-                end repeat
-            end tell
-        on error
-        end try
-    end repeat
-    return ""
+    try
+        return name of every window of process "Clairvoyant-Settings"
+    on error
+        return ""
+    end try
 end tell
 APPLESCRIPT
 )
-
-    if [ -n "$DIRECT_WINDOW" ]; then
-        pass "Settings-ikkuna löytyi (suora spawn): $DIRECT_WINDOW"
-        SETTINGS_SPAWNED=true
-        # Keep settings alive for Phase 7 cleanup
+        if [ -n "$WRAPPER_WINDOW" ]; then
+            pass "Settings-ikkuna löytyi (Settings.app): $WRAPPER_WINDOW"
+            SETTINGS_SPAWNED=true
+        else
+            fail "Settings.app spawnattu mutta ikkunaa ei löydy"
+        fi
     else
-        kill $SETTINGS_DIRECT_PID 2>/dev/null || true
+        fail "Settings.app wrapper PUUTTUU bundlesta"
     fi
 fi
 
-# Strategy C: PID file check (fallback if window detection fails)
+# Strategy C: PID file check (fallback)
 if ! $SETTINGS_SPAWNED; then
     SETTINGS_PID_FILE="$HOME/.clairvoyant-optics/settings.pid"
     if [ -f "$SETTINGS_PID_FILE" ]; then
