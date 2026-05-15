@@ -42,6 +42,15 @@ for f in "eye_22.png" "eye_44.png" "settings.py" "app.py"; do
     [ -f "$RESOURCES/$f" ] && pass "  $f" || fail "  $f MISSING"
 done
 
+# Settings.app wrapper (spawned via open -a for window-server context)
+if [ -d "$RESOURCES/Settings.app" ]; then
+    pass "  Settings.app/"
+    [ -f "$RESOURCES/Settings.app/Contents/Info.plist" ] && pass "    Info.plist" || fail "    Info.plist MISSING"
+    [ -x "$RESOURCES/Settings.app/Contents/MacOS/Clairvoyant-Settings" ] && pass "    launcher script" || fail "    launcher script MISSING/not executable"
+else
+    fail "  Settings.app/ MISSING"
+fi
+
 for lib in libtcl8.6.dylib libtk8.6.dylib libpython3.11.dylib; do
     [ -f "$FW/$lib" ] && pass "  $lib" || info "  $lib not in Frameworks (may be ok)"
 done

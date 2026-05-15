@@ -20,7 +20,7 @@ try:
 except ImportError:
     rumps = None
 
-VERSION = "4.2.2"
+VERSION = "4.2.3"
 
 # Bundle-aware paths
 IS_BUNDLED = getattr(sys, "frozen", False) or (
@@ -136,15 +136,29 @@ def _pid_alive(pid: int) -> bool:
 
 
 def spawn_settings(debug: bool = False) -> bool:
-    """Spawn settings window process. Returns True on success."""
+    """Spawn settings window via Settings.app wrapper.
+
+    Uses open -a because LSUIElement parents (rumps menu bar app)
+    cannot spawn visible tkinter windows directly on macOS —
+    the child inherits the background-only window server context.
+    The Settings.app wrapper (bundled inside Resources/) is a
+    normal foreground .app that gets its own window-server connection.
+    """
+    if IS_BUNDLED:
+        settings_app = BUNDLE_DIR / "Settings.app"
+        if settings_app.exists():
+            subprocess.run(["open", "-a", str(settings_app)], check=False)
+            return True
+        return False
+    # Development: spawn directly (this works outside LSUIElement)
     if not SETTINGS_SCRIPT.exists():
         return False
-
-    python = str(BUNDLED_PYTHON) if IS_BUNDLED else sys.executable
-    kwargs = {"stdout": None if debug else subprocess.DEVNULL,
-              "stderr": None if debug else subprocess.DEVNULL}
-    proc = subprocess.Popen([python, str(SETTINGS_SCRIPT)], **kwargs)
-    SETTINGS_PID_FILE.write_text(str(proc.pid))
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    subprocess.Popen(
+        [sys.executable, str(SETTINGS_SCRIPT)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
     return True
 
 
@@ -183,7 +197,7 @@ class ClairvoyantApp(rumps.App):
         self.menu.clear()
 
         # macOS convention: "Settings…" with ellipsis, ⌘, shortcut
-        settings = rumps.MenuItem("Settings…", key=",")
+        settings = rumps.MenuItem("Settings…", key="s")
         settings.set_callback(self._on_settings)
         self.menu.add(settings)
 

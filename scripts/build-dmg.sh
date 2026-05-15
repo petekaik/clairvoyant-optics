@@ -47,6 +47,42 @@ cp -f "assets/eye_44.png" "$RESOURCES/"
 cp -f "src/macos/settings.py" "$RESOURCES/"
 echo "   ✅ eye_22.png, eye_44.png, settings.py copied"
 
+# ── Create Settings.app wrapper inside Resources ───────────────
+echo "📁 Creating Settings.app wrapper..."
+SETTINGS_APP="$RESOURCES/Settings.app"
+rm -rf "$SETTINGS_APP"
+mkdir -p "$SETTINGS_APP/Contents/MacOS"
+
+cat > "$SETTINGS_APP/Contents/MacOS/Clairvoyant-Settings" << 'SHEOF'
+#!/bin/bash
+# Find parent bundle relative to this script
+# Layout: Parent.app/Contents/Resources/Settings.app/Contents/MacOS/Clairvoyant-Settings
+PARENT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+export DYLD_FALLBACK_LIBRARY_PATH="$PARENT/Contents/Frameworks"
+exec "$PARENT/Contents/MacOS/python" "$PARENT/Contents/Resources/settings.py"
+SHEOF
+chmod +x "$SETTINGS_APP/Contents/MacOS/Clairvoyant-Settings"
+
+cat > "$SETTINGS_APP/Contents/Info.plist" << 'PLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>Clairvoyant-Settings</string>
+    <key>CFBundleIdentifier</key>
+    <string>fi.kaikkonen.clairvoyant-optics.settings</string>
+    <key>CFBundleName</key>
+    <string>Clairvoyant-Settings</string>
+    <key>CFBundleVersion</key>
+    <string>${VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+</dict>
+</plist>
+PLEOF
+echo "   ✅ Settings.app wrapper created"
+
 # ── Fix missing @rpath dylibs ─────────────────────────────────
 
 FW="$APP/Contents/Frameworks"

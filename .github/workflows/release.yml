@@ -59,6 +59,40 @@ jobs:
           cp -f src/macos/settings.py "$RESOURCES/" || { echo "FATAL: cannot copy settings.py"; exit 1; }
           ls -la "$RESOURCES/eye_22.png" "$RESOURCES/eye_44.png" "$RESOURCES/settings.py"
 
+      - name: Create Settings.app wrapper
+        run: |
+          RESOURCES="dist/Clairvoyant-Optics.app/Contents/Resources"
+          SETTINGS_APP="$RESOURCES/Settings.app"
+          rm -rf "$SETTINGS_APP"
+          mkdir -p "$SETTINGS_APP/Contents/MacOS"
+          cat > "$SETTINGS_APP/Contents/MacOS/Clairvoyant-Settings" << 'SHEOF'
+          #!/bin/bash
+          PARENT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+          export DYLD_FALLBACK_LIBRARY_PATH="$PARENT/Contents/Frameworks"
+          exec "$PARENT/Contents/MacOS/python" "$PARENT/Contents/Resources/settings.py"
+          SHEOF
+          chmod +x "$SETTINGS_APP/Contents/MacOS/Clairvoyant-Settings"
+          cat > "$SETTINGS_APP/Contents/Info.plist" << 'PLEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>Clairvoyant-Settings</string>
+              <key>CFBundleIdentifier</key>
+              <string>fi.kaikkonen.clairvoyant-optics.settings</string>
+              <key>CFBundleName</key>
+              <string>Clairvoyant-Settings</string>
+              <key>CFBundleVersion</key>
+              <string>${{ steps.version.outputs.version }}</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+          </dict>
+          </plist>
+          PLEOF
+          echo "✅ Settings.app wrapper created"
+          ls -la "$SETTINGS_APP/Contents/MacOS/Clairvoyant-Settings" "$SETTINGS_APP/Contents/Info.plist"
+
       - name: Fix @rpath dylibs
         run: |
           APP="dist/Clairvoyant-Optics.app"

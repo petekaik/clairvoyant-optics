@@ -16,7 +16,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "4.2.2"
+VERSION = "4.2.3"
 
 # ── paths ──────────────────────────────────────────────────────────────
 IS_BUNDLED = getattr(sys, "frozen", False)
@@ -147,7 +147,6 @@ class SettingsWindow:
         self._detect_dark_mode()
         self._col = _mac_colors(self._dark)
         self._apply_window_theme()
-        self._withdraw_immediately()
         self._setup_signals()
         self._setup_keyboard()
         self._build_toolbar()
@@ -156,7 +155,7 @@ class SettingsWindow:
         # Write PID file so test-dmg.sh and spawn_settings() can track us
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         (CONFIG_DIR / "settings.pid").write_text(str(os.getpid()))
-        self._root.after(16, self._show)  # show on next frame so Tk settles
+        # Show immediately — no withdraw/show dance needed since _hide_from_dock removed
 
     # ── window basics ───────────────────────────────────────────────
     def _setup_root(self) -> None:
