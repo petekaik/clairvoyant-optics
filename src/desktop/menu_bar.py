@@ -107,15 +107,54 @@ class ClairvoyantApp(rumps.App):
     # ── Daemon connection ───────────────────────────────────────────
 
     def _connect_daemon(self):
-        """Connect to daemon and start polling."""
+        """Connect to daemon, spawning it if necessary."""
         if self._ipc.connect():
             self._start_polling()
+            return
 
-        # If daemon not running yet, try reconnecting
+        # Spawn daemon as background process
+        daemon_started = self._spawn_daemon()
+        if daemon_started:
+            # Wait for daemon socket to appear
+            deadline = time.time() + 15
+            while time.time() < deadline and not self._ipc.connected:
+                time.sleep(0.5)
+                if self._ipc.connect():
+                    self._start_polling()
+                    return
+
+        # Fallback: keep trying reconnect
         if not self._ipc.connected:
             self._ipc.on_disconnect = self._on_daemon_disconnect
             t = threading.Thread(target=self._reconnect_loop, daemon=True)
             t.start()
+
+    def _spawn_daemon(self) -> bool:
+        """Spawn clairvoyantd as a background process. Returns True if started."""
+        import subprocess
+
+        if IS_BUNDLED:
+            # Bundle mode: daemon.py is at Resources/lib/python3.11/src/service/daemon.py
+            bundle_resources = Path(__file__).resolve().parent
+            daemon_script = bundle_resources / "lib" / "python3.11" / "src" / "service" / "daemon.py"
+            python_bin = bundle_resources.parent / "MacOS" / "python"
+        else:
+            daemon_script = PROJECT_ROOT / "src" / "service" / "daemon.py"
+            python_bin = sys.executable
+
+        if not daemon_script.exists():
+            return False
+
+        try:
+            subprocess.Popen(
+                [str(python_bin), str(daemon_script)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return True
+        except Exception:
+            return False
 
     def _reconnect_loop(self):
         """Background attempt to reconnect to daemon."""

@@ -38,7 +38,7 @@ for f in "MacOS/python" "MacOS/Clairvoyant-Optics"; do
     [ -f "$APP/Contents/$f" ] && pass "  $f" || fail "  $f MISSING"
 done
 
-for f in "eye_22.png" "eye_44.png" "settings.py" "app.py"; do
+for f in "eye_22.png" "eye_44.png" "settings.py" "menu_bar.py"; do
     [ -f "$RESOURCES/$f" ] && pass "  $f" || fail "  $f MISSING"
 done
 

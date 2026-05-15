@@ -42,12 +42,12 @@ echo "✅ .app bundle: $BUNDLE_SIZE"
 
 echo "📁 Copying assets to bundle..."
 RESOURCES="$APP/Contents/Resources"
-cp -f "assets/eye_22.png" "$RESOURCES/"
-cp -f "assets/eye_44.png" "$RESOURCES/"
+cp -f "assets/eye_22.png" "$RESOURCES/" || { echo "FATAL: cannot copy eye_22.png"; exit 1; }
+cp -f "assets/eye_44.png" "$RESOURCES/" || { echo "FATAL: cannot copy eye_44.png"; exit 1; }
 
 # Copy desktop-layer scripts
-cp -f "src/desktop/settings.py" "$RESOURCES/"
-cp -f "src/desktop/menu_bar.py" "$RESOURCES/"
+cp -f "src/desktop/settings.py" "$RESOURCES/" || { echo "FATAL: cannot copy settings.py"; exit 1; }
+cp -f "src/desktop/menu_bar.py" "$RESOURCES/" || { echo "FATAL: cannot copy menu_bar.py"; exit 1; }
 echo "   ✅ eye_22.png, eye_44.png, settings.py, menu_bar.py copied"
 
 # ── Create Settings.app wrapper inside Resources ───────────────
