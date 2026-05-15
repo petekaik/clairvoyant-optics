@@ -17,7 +17,7 @@ if version_file.exists():
 else:
     VERSION = "4.0.2"
 
-APP = ["src/macos/app.py"]
+APP = ["src/desktop/menu_bar.py"]
 DATA_FILES = []
 OPTIONS = {
     "argv_emulation": False,
@@ -27,6 +27,13 @@ OPTIONS = {
         "tkinter",
     ],
     "includes": [
+        "src.service",
+        "src.desktop",
+        "src.detection",
+        "src.recognition",
+        "src.streams",
+        "src.integration",
+        "src.utils",
         "src.macos",
     ],
     "excludes": [],

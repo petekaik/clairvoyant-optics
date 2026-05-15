@@ -44,8 +44,11 @@ echo "📁 Copying assets to bundle..."
 RESOURCES="$APP/Contents/Resources"
 cp -f "assets/eye_22.png" "$RESOURCES/"
 cp -f "assets/eye_44.png" "$RESOURCES/"
-cp -f "src/macos/settings.py" "$RESOURCES/"
-echo "   ✅ eye_22.png, eye_44.png, settings.py copied"
+
+# Copy desktop-layer scripts
+cp -f "src/desktop/settings.py" "$RESOURCES/"
+cp -f "src/desktop/menu_bar.py" "$RESOURCES/"
+echo "   ✅ eye_22.png, eye_44.png, settings.py, menu_bar.py copied"
 
 # ── Create Settings.app wrapper inside Resources ───────────────
 echo "📁 Creating Settings.app wrapper..."
@@ -63,7 +66,7 @@ exec "$PARENT/Contents/MacOS/python" "$PARENT/Contents/Resources/settings.py"
 SHEOF
 chmod +x "$SETTINGS_APP/Contents/MacOS/Clairvoyant-Settings"
 
-cat > "$SETTINGS_APP/Contents/Info.plist" << 'PLEOF'
+cat > "$SETTINGS_APP/Contents/Info.plist" << PLEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
