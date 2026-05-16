@@ -1,406 +1,713 @@
 #!/usr/bin/env python3
-"""Clairvoyant-Optics v5.0 — Settings (tkinter, IPC client).
+"""Clairvoyant-Optics v5.0.1 — Settings (macOS HIG + IPC).
 
-Tab-based settings GUI using macOS HIG conventions:
-- Toolbar tab navigation (icon + label)
-- Instant-apply on change (via IPC config.set)
-- Close-only window controls, Escape to close
-- Reads/writes all config through clairvoyantd IPC (not direct file I/O)
+Architecture
+  Toolbar-based tab navigation (icon + label), modeless instant-apply,
+  close-only window controls, Escape / ⌘. / ⌘W to close.
 
-Runs as SEPARATE process spawned by menu bar or directly.
+  Dual config backend:
+    Primary:   IPC to clairvoyantd daemon (config.get / config.set)
+    Fallback:  Direct YAML read/write if daemon unreachable
+
+  Runs as SEPARATE process — spawned via open -a Settings.app (bundle)
+  or python settings.py (dev).
+
+IPC: SIGUSR1 → show, SIGTERM → quit
 """
 
 import os
 import signal
 import sys
-import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.0.0"
+VERSION = "5.0.1"
 
-IS_BUNDLED = getattr(sys, "frozen", False)
+# ── paths ──────────────────────────────────────────────────────────────
+
+IS_BUNDLED = getattr(sys, "frozen", False) or (
+    "Contents/Resources" in str(Path(__file__).resolve())
+)
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
-SETTINGS_PID_FILE = CONFIG_DIR / "settings.pid"
+CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
-# ── IPC Client ─────────────────────────────────────────────────────────
+DEFAULTS: dict = {
+    "log_level": "INFO",
+    "start_minimized": True,
+    "close_to_menu_bar": True,
+    "launch_at_login": False,
+    "confirm_quit": False,
+    "auto_update": False,
+    "error_reporting": False,
+    "pause_on_battery": False,
+    "pause_when_away": False,
+    "home_ssids": "",
+    "cameras": [],
+    "notifications_enabled": True,
+    "notify_on_family": True,
+    "notify_on_unknown": True,
+    "notification_sound_family": "default",
+    "notification_sound_alert": "alarm",
+    "notification_dnd_start": "",
+    "notification_dnd_end": "",
+}
 
-from src.desktop.ipc_client import IPCClient
+# ── Dual config backend ───────────────────────────────────────────────
 
-_ipc: IPCClient | None = None
-_config_cache: dict = {}  # Full config as dict, refreshed on load/reload
+_ipc = None
 
-
-def _get_ipc() -> IPCClient:
-    """Lazy-init IPC connection to daemon."""
+def _get_ipc():
+    """Lazy-init IPC client. Returns None if daemon unreachable."""
     global _ipc
     if _ipc is None:
-        _ipc = IPCClient()
-        _ipc.connect()
+        try:
+            from src.desktop.ipc_client import IPCClient
+            _ipc = IPCClient()
+            if not _ipc.connect():
+                _ipc = None
+        except Exception:
+            _ipc = None
     return _ipc
 
-
-def _ipc_call(method: str, params: dict | None = None, timeout: float = 5.0) -> dict:
-    """IPC RPC wrapper. Returns result dict or raises on error."""
+def _ipc_call(method: str, params: dict | None = None, timeout: float = 5.0) -> dict | None:
     ipc = _get_ipc()
-    if not ipc.connected:
-        raise ConnectionError("Daemon not running. Start clairvoyantd first.")
+    if ipc is None or not ipc.connected:
+        return None
     resp = ipc.call(method, params, timeout=timeout)
     if "error" in resp:
-        raise RuntimeError(resp["error"].get("message", str(resp["error"])))
-    return resp.get("result", {})
+        return None
+    return resp.get("result")
 
+# ── yaml helpers (fallback when daemon offline) ───────────────────────
+
+def _load_yaml(path: Path) -> dict:
+    try:
+        import yaml
+        if path.exists():
+            data = yaml.safe_load(open(path))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+def _save_yaml(path: Path, data: dict) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        import yaml
+        yaml.safe_dump(data, open(path, "w"), default_flow_style=False, allow_unicode=True)
+    except Exception:
+        with open(path, "w") as f:
+            for k, v in data.items():
+                f.write(f"{k}: {v}\n")
 
 def load_config() -> dict:
-    """Load full config from daemon, cache locally."""
-    global _config_cache
-    _config_cache = _ipc_call("config.get")
-    return _config_cache
+    """Load config: try IPC first, fallback to YAML."""
+    result = _ipc_call("config.get")
+    if result and isinstance(result, dict):
+        cfg = dict(DEFAULTS)
+        for section in ("general", "behavior", "streams", "notifications", "advanced"):
+            if section in result and isinstance(result[section], dict):
+                # Flatten: notifications → notification_ prefix etc
+                for k, v in result[section].items():
+                    cfg[k] = v
+        return cfg
 
+    # Fallback: direct YAML
+    cfg = dict(DEFAULTS)
+    cfg.update(_load_yaml(CONFIG_FILE))
+    return cfg
 
-def save_key(section: str, key: str, value: object) -> bool:
-    """Save a single key via IPC. Returns True on success."""
-    try:
-        _ipc_call("config.set", {"section": section, "key": key, "value": value})
-        # Update local cache
-        if section in _config_cache and isinstance(_config_cache[section], dict):
-            _config_cache[section][key] = value
-        return True
-    except Exception as e:
-        print(f"Config save failed: {e}", file=sys.stderr)
-        return False
+def save_key(key: str, value: object) -> None:
+    """Save single key: try IPC first, fallback to YAML."""
+    # Try IPC
+    section = _key_to_section(key)
+    ipc_key = _key_to_ipc_key(key)
+    result = _ipc_call("config.set", {"section": section, "key": ipc_key, "value": value})
+    if result:
+        return
 
+    # Fallback: direct YAML
+    cfg = _load_yaml(CONFIG_FILE)
+    cfg[key] = value
+    _save_yaml(CONFIG_FILE, cfg)
 
-def reload_config() -> bool:
-    """Trigger daemon config reload and refresh cache."""
-    try:
-        _ipc_call("config.reload")
-        load_config()
-        return True
-    except Exception:
-        return False
+def _key_to_section(key: str) -> str:
+    mapping = {
+        "log_level": "general", "start_minimized": "general",
+        "close_to_menu_bar": "general", "launch_at_login": "general",
+        "confirm_quit": "general", "auto_update": "advanced",
+        "error_reporting": "advanced", "pause_on_battery": "advanced",
+        "pause_when_away": "advanced", "home_ssids": "advanced",
+        "notifications_enabled": "notifications",
+        "notify_on_family": "notifications", "notify_on_unknown": "notifications",
+        "notification_sound_family": "notifications",
+        "notification_sound_alert": "notifications",
+        "notification_dnd_start": "notifications",
+        "notification_dnd_end": "notifications",
+    }
+    return mapping.get(key, "general")
 
+def _key_to_ipc_key(key: str) -> str:
+    """Strip section prefixes for flat YAML keys → IPC nested keys."""
+    prefixes = {"notification_sound_": "", "notification_dnd_": "", "notifications_": "", "notify_on_": ""}
+    for prefix, replacement in prefixes.items():
+        if key.startswith(prefix) and prefix != "":
+            return key[len(prefix):]
+    return key
 
-# ── Settings Window ────────────────────────────────────────────────────
+def save_cameras(cameras: list) -> None:
+    """Save cameras list: try IPC, fallback YAML."""
+    result = _ipc_call("config.set", {"section": "streams", "key": "cameras", "value": cameras})
+    if result:
+        return
+    cfg = _load_yaml(CONFIG_FILE)
+    cfg["cameras"] = cameras
+    _save_yaml(CONFIG_FILE, cfg)
+
+def reload_config() -> None:
+    _ipc_call("config.reload")
+
+# ── macOS semantic colour palette ──────────────────────────────────────
+
+def _mac_colors(dark: bool) -> dict:
+    if dark:
+        return {
+            "window_bg": "#1e1e20", "toolbar_bg": "#262628",
+            "toolbar_selected": "#3a3a3c", "toolbar_hover": "#323234",
+            "separator": "#3a3a3c", "label_primary": "#f5f5f7",
+            "label_secondary": "#98989d", "label_tertiary": "#6e6e73",
+            "control_bg": "#2c2c2e", "control_active": "#0a84ff",
+            "entry_bg": "#1c1c1e", "entry_border": "#48484a",
+            "toggle_track_off": "#48484a", "toggle_track_on": "#0a84ff",
+            "toggle_knob": "#ffffff", "destructive": "#ff453a",
+            "success": "#30d158",
+        }
+    return {
+        "window_bg": "#f5f5f7", "toolbar_bg": "#e8e8ec",
+        "toolbar_selected": "#d1d1d6", "toolbar_hover": "#dddddf",
+        "separator": "#c6c6c8", "label_primary": "#1d1d1f",
+        "label_secondary": "#6e6e73", "label_tertiary": "#aeaeb2",
+        "control_bg": "#ffffff", "control_active": "#007aff",
+        "entry_bg": "#ffffff", "entry_border": "#c6c6c8",
+        "toggle_track_off": "#aeaeb2", "toggle_track_on": "#34c759",
+        "toggle_knob": "#ffffff", "destructive": "#ff3b30",
+        "success": "#34c759",
+    }
+
+# ── tab definitions ────────────────────────────────────────────────────
+
+TABS = [
+    ("general",       "General",        "\u2699"),      # ⚙ gear
+    ("behavior",      "Behavior",       "\u2691"),      # ⚑ flag
+    ("streams",       "Streams",        "\u25B6"),      # ▶ play
+    ("notifications", "Notifications",  "\U0001F514"),  # 🔔 bell
+    ("advanced",      "Advanced",       "\u2305"),      # ⌅ enter
+]
+
+# ────────────────────────────────────────────────────────────────────────
+#  SettingsWindow
+# ────────────────────────────────────────────────────────────────────────
 
 class SettingsWindow:
-    """Toolbar-based tabbed settings window. Instant-apply on all changes."""
+    """macOS HIG – compliant preferences window with dual IPC/YAML backend."""
 
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Clairvoyant-Optics Settings")
-        self.root.resizable(True, True)
-        self.root.minsize(680, 520)
-
-        # Write PID file for menu bar / test scripts
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        SETTINGS_PID_FILE.write_text(str(os.getpid()))
-
-        # Center on screen
-        w, h = 700, 600
-        ws = self.root.winfo_screenwidth()
-        hs = self.root.winfo_screenheight()
-        x = (ws // 2) - (w // 2)
-        y = (hs // 2) - (h // 2)
-        self.root.geometry(f"{w}x{h}+{x}+{y}")
-
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.root.bind("<Escape>", lambda e: self._on_close())
-        self.root.bind("<Command-w>", lambda e: self._on_close())
-
-        # Variables for fields (populated after config load)
-        self._vars: dict[str, tk.Variable] = {}
-        self._after_ids: list[str] = []  # after() IDs for cleanup
-
-        # Build UI
+    def __init__(self) -> None:
+        self._cfg = load_config()
+        self._setup_root()
+        self._detect_dark_mode()
+        self._col = _mac_colors(self._dark)
+        self._apply_window_theme()
+        self._setup_signals()
+        self._setup_keyboard()
         self._build_toolbar()
-        self._build_tabs()
-        self._load_and_populate()
+        self._build_content_area()
+        self._select_tab("general")
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        (CONFIG_DIR / "settings.pid").write_text(str(os.getpid()))
 
-        # SIGUSR1 = bring to front (from menu bar)
-        signal.signal(signal.SIGUSR1, lambda s, f: self._bring_to_front())
+    # ── window basics ───────────────────────────────────────────────
 
-    # ── Toolbar ─────────────────────────────────────────────────────
+    def _setup_root(self) -> None:
+        self._root = tk.Tk()
+        self._root.title("Clairvoyant-Optics Settings")
+        self._root.geometry("660x580")
+        self._root.minsize(540, 420)
+        self._root.resizable(True, True)
+        self._root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _build_toolbar(self):
-        toolbar = ttk.Frame(self.root)
-        toolbar.pack(fill=tk.X, side=tk.TOP, padx=0, pady=0)
-
-        self._tabs_frame = ttk.Frame(self.root)
-        self._tabs_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
-
-        self._tab_buttons: list[ttk.Button] = []
-        self._tab_frames: dict[str, ttk.Frame] = {}
-        self._current_tab: str | None = None
-
-        tabs = [
-            ("general", "General"),
-            ("cameras", "Cameras"),
-            ("detection", "Detection"),
-            ("notifications", "Notifications"),
-            ("battery", "Battery"),
-            ("telemetry", "Telemetry"),
-        ]
-
-        for name, label in tabs:
-            btn = ttk.Button(toolbar, text=label, command=lambda n=name: self._switch_tab(n))
-            btn.pack(side=tk.LEFT, padx=2, pady=6)
-            self._tab_buttons.append((name, btn))
-            frame = ttk.Frame(self._tabs_frame)
-            self._tab_frames[name] = frame
-
-        self._switch_tab("general")
-
-    def _switch_tab(self, name: str):
-        if self._current_tab == name:
-            return
-        for tab_name, frame in self._tab_frames.items():
-            frame.pack_forget()
-        self._tab_frames[name].pack(fill=tk.BOTH, expand=True)
-        self._current_tab = name
-
-    # ── Tabs ─────────────────────────────────────────────────────────
-
-    def _build_tabs(self):
-        self._build_general_tab()
-        self._build_cameras_tab()
-        self._build_detection_tab()
-        self._build_notifications_tab()
-        self._build_battery_tab()
-        self._build_telemetry_tab()
-
-    # ── General tab ─────────────────────────────────────────────────
-
-    def _build_general_tab(self):
-        f = self._tab_frames["general"]
-        ttk.Label(f, text="General Settings", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(10, 15))
-        self._add_checkbox(f, "general", "launch_at_login", "Launch at login")
-        self._add_checkbox(f, "general", "start_minimized", "Start minimized to menu bar")
-        self._add_checkbox(f, "general", "close_to_menu_bar", "Close to menu bar (not quit)")
-        self._add_checkbox(f, "general", "confirm_quit", "Confirm before quit")
-        self._add_combobox(f, "general", "log_level", "Log level", ["DEBUG", "INFO", "WARNING", "ERROR"])
-
-    # ── Cameras tab ──────────────────────────────────────────────────
-
-    def _build_cameras_tab(self):
-        f = self._tab_frames["cameras"]
-        ttk.Label(f, text="Camera Configuration", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(10, 15))
-
-        self._cameras_list_frame = ttk.Frame(f)
-        self._cameras_list_frame.pack(fill=tk.BOTH, expand=True)
-
-        btn_frame = ttk.Frame(f)
-        btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="+ Add Camera", command=self._add_camera_row).pack(side=tk.LEFT, padx=5)
-
-    def _add_camera_row(self, data: dict | None = None):
-        """Add one camera row (or populate from data)."""
-        data = data or {"name": "", "stream_url": "", "snap_url": "", "enabled": True}
-        row = ttk.Frame(self._cameras_list_frame)
-        row.pack(fill=tk.X, pady=4)
-
-        ttk.Label(row, text="Name:").pack(side=tk.LEFT, padx=(0, 4))
-        name_var = tk.StringVar(value=data.get("name", ""))
-        ttk.Entry(row, textvariable=name_var, width=16).pack(side=tk.LEFT, padx=4)
-        name_var.trace_add("write", lambda *a, v=name_var: save_key("cameras", "dirty", True))
-
-        ttk.Label(row, text="Stream:").pack(side=tk.LEFT, padx=4)
-        stream_var = tk.StringVar(value=data.get("stream_url", ""))
-        ttk.Entry(row, textvariable=stream_var, width=28).pack(side=tk.LEFT, padx=4)
-
-        ttk.Label(row, text="Snap:").pack(side=tk.LEFT, padx=4)
-        snap_var = tk.StringVar(value=data.get("snap_url", ""))
-        ttk.Entry(row, textvariable=snap_var, width=28).pack(side=tk.LEFT, padx=4)
-
-        enabled_var = tk.BooleanVar(value=data.get("enabled", True))
-        ttk.Checkbutton(row, text="On", variable=enabled_var).pack(side=tk.LEFT, padx=8)
-
-        ttk.Button(row, text="✕", width=3, command=lambda r=row: r.destroy()).pack(side=tk.RIGHT)
-
-    # ── Detection tab ────────────────────────────────────────────────
-
-    def _build_detection_tab(self):
-        f = self._tab_frames["detection"]
-        ttk.Label(f, text="Detection Settings", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(10, 15))
-        self._add_scale(f, "detection", "person_confidence", "Person detection confidence", 0.2, 1.0, 0.05)
-        self._add_scale(f, "detection", "face_confidence", "Face detection confidence", 0.2, 1.0, 0.05)
-        self._add_scale(f, "detection", "recognition_threshold", "Recognition threshold", 0.3, 0.95, 0.05)
-        self._add_spinbox(f, "detection", "frame_interval", "Frame interval (every Nth frame)", 1, 60)
-        self._add_spinbox(f, "detection", "debounce_seconds", "Debounce (seconds)", 5, 300)
-
-    # ── Notifications tab ────────────────────────────────────────────
-
-    def _build_notifications_tab(self):
-        f = self._tab_frames["notifications"]
-        ttk.Label(f, text="Notification Settings", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(10, 15))
-        self._add_checkbox(f, "notifications", "enabled", "Enable notifications")
-        self._add_checkbox(f, "notifications", "notify_on_family", "Notify on family member")
-        self._add_checkbox(f, "notifications", "notify_on_unknown", "Notify on unknown person")
-        self._add_entry(f, "notifications", "sound_family", "Family notification sound")
-        self._add_entry(f, "notifications", "sound_alert", "Alert notification sound")
-        self._add_entry(f, "notifications", "dnd_start", "DND start (HH:MM)", width=8)
-        self._add_entry(f, "notifications", "dnd_end", "DND end (HH:MM)", width=8)
-
-    # ── Battery tab ──────────────────────────────────────────────────
-
-    def _build_battery_tab(self):
-        f = self._tab_frames["battery"]
-        ttk.Label(f, text="Battery & WiFi", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(10, 15))
-        self._add_checkbox(f, "battery", "pause_on_battery", "Pause detection on battery")
-        self._add_checkbox(f, "battery", "pause_when_away", "Pause when away from home WiFi")
-        self._add_entry(f, "battery", "home_ssids", "Home WiFi SSIDs (comma-separated)")
-        self._add_spinbox(f, "battery", "poll_interval", "Poll interval (seconds)", 10, 300)
-
-    # ── Telemetry tab ────────────────────────────────────────────────
-
-    def _build_telemetry_tab(self):
-        f = self._tab_frames["telemetry"]
-        ttk.Label(f, text="Telemetry & Updates", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(10, 15))
-        self._add_checkbox(f, "telemetry", "auto_update", "Auto-update (check every 6h)")
-        self._add_checkbox(f, "telemetry", "error_reporting", "Anonymous error reporting")
-        lbl = ttk.Label(
-            f,
-            text="Error reports are auto-labeled and analyzed daily.\nNo personal data is sent.",
-            foreground="gray",
-        )
-        lbl.pack(anchor=tk.W, pady=(0, 10))
-
-    # ── Field helpers ────────────────────────────────────────────────
-
-    def _add_checkbox(self, parent, section: str, key: str, label: str):
-        var = tk.BooleanVar()
-        cb = ttk.Checkbutton(parent, text=label, variable=var)
-        cb.pack(anchor=tk.W, pady=4)
-        var.trace_add("write", lambda *a, s=section, k=key, v=var: save_key(s, k, v.get()))
-        self._vars[f"{section}.{key}"] = var
-
-    def _add_entry(self, parent, section: str, key: str, label: str, width: int = 30):
-        row = ttk.Frame(parent)
-        row.pack(fill=tk.X, pady=4)
-        ttk.Label(row, text=label, width=26, anchor=tk.W).pack(side=tk.LEFT)
-        var = tk.StringVar()
-        e = ttk.Entry(row, textvariable=var, width=width)
-        e.pack(side=tk.LEFT)
-        var.trace_add("write", lambda *a, s=section, k=key, v=var: save_key(s, k, v.get()))
-        self._vars[f"{section}.{key}"] = var
-
-    def _add_combobox(self, parent, section: str, key: str, label: str, values: list[str]):
-        row = ttk.Frame(parent)
-        row.pack(fill=tk.X, pady=4)
-        ttk.Label(row, text=label, width=26, anchor=tk.W).pack(side=tk.LEFT)
-        var = tk.StringVar()
-        cb = ttk.Combobox(row, textvariable=var, values=values, state="readonly", width=18)
-        cb.pack(side=tk.LEFT)
-        var.trace_add("write", lambda *a, s=section, k=key, v=var: save_key(s, k, v.get()))
-        self._vars[f"{section}.{key}"] = var
-
-    def _add_scale(self, parent, section: str, key: str, label: str, from_: float, to: float, step: float):
-        row = ttk.Frame(parent)
-        row.pack(fill=tk.X, pady=4)
-        ttk.Label(row, text=label, width=30, anchor=tk.W).pack(side=tk.LEFT)
-        var = tk.DoubleVar()
-        scale = ttk.Scale(row, from_=from_, to=to, variable=var, length=200)
-        scale.pack(side=tk.LEFT, padx=8)
-        val_lbl = ttk.Label(row, text="0.00", width=5)
-        val_lbl.pack(side=tk.LEFT)
-        var.trace_add("write", lambda *a, s=section, k=key, v=var, vl=val_lbl: self._on_scale_change(s, k, v, vl))
-        self._vars[f"{section}.{key}"] = var
-
-    def _add_spinbox(self, parent, section: str, key: str, label: str, from_: int, to: int):
-        row = ttk.Frame(parent)
-        row.pack(fill=tk.X, pady=4)
-        ttk.Label(row, text=label, width=30, anchor=tk.W).pack(side=tk.LEFT)
-        var = tk.IntVar()
-        sb = ttk.Spinbox(row, from_=from_, to=to, textvariable=var, width=8)
-        sb.pack(side=tk.LEFT)
-        var.trace_add("write", lambda *a, s=section, k=key, v=var: save_key(s, k, str(v.get())))
-        self._vars[f"{section}.{key}"] = var
-
-    # ── Data ─────────────────────────────────────────────────────────
-
-    def _load_and_populate(self):
-        """Load config from daemon and fill all fields."""
+    def _detect_dark_mode(self) -> None:
+        self._dark = False
         try:
-            cfg = load_config()
-        except Exception as e:
-            self._show_error(f"Failed to connect to daemon:\n{e}\n\nStart clairvoyantd first.")
-            return
+            import subprocess
+            r = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=2,
+            )
+            self._dark = r.stdout.strip() == "Dark"
+        except Exception:
+            pass
 
-        # Set form values from loaded config
-        for full_key, var in self._vars.items():
-            section, key = full_key.split(".", 1)
-            section_data = cfg.get(section, {})
-            if isinstance(section_data, dict) and key in section_data:
-                value = section_data[key]
-                try:
-                    if isinstance(var, tk.BooleanVar):
-                        var.set(bool(value))
-                    elif isinstance(var, tk.DoubleVar):
-                        var.set(float(value))
-                    elif isinstance(var, tk.IntVar):
-                        var.set(int(value))
-                    else:
-                        var.set(str(value) if value is not None else "")
-                except Exception:
-                    pass  # Type mismatch — leave default
+    def _apply_window_theme(self) -> None:
+        self._root.configure(bg=self._col["window_bg"])
 
-        # Populate cameras
-        camera_data = cfg.get("cameras", [])
-        if isinstance(camera_data, list):
-            for cam in camera_data:
-                if isinstance(cam, dict):
-                    self._add_camera_row(cam)
+    def _show(self) -> None:
+        self._root.deiconify()
+        self._root.lift()
+        self._root.focus_force()
 
-    def _on_scale_change(self, section: str, key: str, var: tk.DoubleVar, label: ttk.Label):
-        """Update scale label and save."""
-        val = round(var.get(), 2)
-        label.config(text=f"{val:.2f}")
-        save_key(section, key, val)
+    # ── signals ────────────────────────────────────────────────────
 
-    # ── Window management ────────────────────────────────────────────
-
-    def _bring_to_front(self):
-        """Bring window to front (SIGUSR1 handler). Runs on main thread via after()."""
-        def _raise():
+    def _setup_signals(self) -> None:
+        signal.signal(signal.SIGUSR1, lambda s, f: self._root.after(0, self._show))
+        def _term(signum, frame):
+            (CONFIG_DIR / "settings.pid").unlink(missing_ok=True)
             try:
-                self.root.deiconify()
-                self.root.lift()
-                self.root.focus_force()
+                self._root.destroy()
             except Exception:
                 pass
-        self.root.after(0, _raise)
+            sys.exit(0)
+        signal.signal(signal.SIGTERM, _term)
 
-    def _on_close(self):
-        SETTINGS_PID_FILE.unlink(missing_ok=True)
-        if _ipc:
-            _ipc.close()
-        self.root.destroy()
+    # ── keyboard ────────────────────────────────────────────────────
 
-    def _show_error(self, message: str):
-        """Show error dialog if daemon unavailable."""
-        top = tk.Toplevel(self.root)
-        top.title("Connection Error")
-        top.geometry("400x160")
+    def _setup_keyboard(self) -> None:
+        self._root.bind("<Escape>", lambda e: self._on_close())
+        self._root.bind("<Command-,>", lambda e: self._on_close())
+        self._root.bind("<Command-.>", lambda e: self._on_close())
+        self._root.bind("<Command-w>", lambda e: self._on_close())
+
+    def _on_close(self) -> None:
+        if self._cfg.get("close_to_menu_bar", True):
+            self._root.withdraw()
+        elif self._cfg.get("confirm_quit", False):
+            self._show_confirm_quit()
+        else:
+            self._quit()
+
+    def _quit(self) -> None:
+        (CONFIG_DIR / "settings.pid").unlink(missing_ok=True)
+        try:
+            self._root.destroy()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    def _show_confirm_quit(self) -> None:
+        c = self._col
+        top = tk.Toplevel(self._root, bg=c["window_bg"])
+        top.title("")
         top.resizable(False, False)
-        ttk.Label(top, text=message, wraplength=360, justify=tk.LEFT).pack(padx=20, pady=20)
-        ttk.Button(top, text="Retry", command=lambda: [top.destroy(), self._load_and_populate()]).pack(pady=5)
-        ttk.Button(top, text="Close", command=self._on_close).pack(pady=5)
+        top.transient(self._root)
+        top.grab_set()
+        top.geometry("320x140")
+        top.update_idletasks()
+        px, py = self._root.winfo_x(), self._root.winfo_y()
+        pw, ph = self._root.winfo_width(), self._root.winfo_height()
+        tw, th = top.winfo_width(), top.winfo_height()
+        top.geometry(f"+{px + (pw - tw)//2}+{py + (ph - th)//2}")
 
-    def run(self):
-        self.root.mainloop()
+        frm = tk.Frame(top, bg=c["window_bg"], padx=20, pady=20)
+        frm.pack(expand=True, fill="both")
+        tk.Label(frm, text="Quit Clairvoyant-Optics?",
+                 font=("SF Pro Text", 13, "bold"), fg=c["label_primary"],
+                 bg=c["window_bg"]).pack(anchor="w")
+        tk.Label(frm, text="The application will stop monitoring cameras.",
+                 font=("SF Pro Text", 11), fg=c["label_secondary"],
+                 bg=c["window_bg"]).pack(anchor="w", pady=(4, 16))
+
+        btn_row = tk.Frame(frm, bg=c["window_bg"])
+        btn_row.pack(anchor="e")
+        tk.Button(btn_row, text="Cancel", font=("SF Pro Text", 12),
+                  bg=c["control_bg"], fg=c["label_primary"],
+                  relief="flat", padx=16, pady=4,
+                  command=top.destroy).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Quit", font=("SF Pro Text", 12, "bold"),
+                  bg=c["destructive"], fg="#ffffff",
+                  relief="flat", padx=16, pady=4,
+                  command=lambda: [top.destroy(), self._quit()]).pack(side="left")
+
+    # ── toolbar ─────────────────────────────────────────────────────────
+
+    def _build_toolbar(self) -> None:
+        c = self._col
+        self._toolbar = tk.Frame(
+            self._root, bg=c["toolbar_bg"], width=170, height=580,
+        )
+        self._toolbar.pack(side="left", fill="y")
+        self._toolbar.pack_propagate(False)
+
+        hdr = tk.Frame(self._toolbar, bg=c["toolbar_bg"], pady=18)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="\U0001F441", font=("SF Pro Text", 20),
+                 bg=c["toolbar_bg"], fg=c["label_primary"]).pack()
+        tk.Label(hdr, text="Clairvoyant-Optics",
+                 font=("SF Pro Text", 11, "bold"),
+                 bg=c["toolbar_bg"], fg=c["label_primary"]).pack(pady=(2, 0))
+
+        sep = tk.Frame(self._toolbar, bg=c["separator"], height=1)
+        sep.pack(fill="x", padx=14, pady=(10, 4))
+
+        self._tab_buttons: dict[str, tk.Frame] = {}
+        for tab_id, label, icon in TABS:
+            btn = tk.Frame(self._toolbar, bg=c["toolbar_bg"],
+                           padx=12, pady=6, cursor="hand2")
+            btn.pack(fill="x")
+            icon_lbl = tk.Label(btn, text=icon, font=("SF Pro Text", 14),
+                                bg=c["toolbar_bg"], fg=c["label_secondary"])
+            icon_lbl.pack(side="left", padx=(4, 8))
+            text_lbl = tk.Label(btn, text=label,
+                                font=("SF Pro Text", 12),
+                                bg=c["toolbar_bg"], fg=c["label_secondary"])
+            text_lbl.pack(side="left")
+            for w in (btn, icon_lbl, text_lbl):
+                w.bind("<Button-1>", lambda e, tid=tab_id: self._select_tab(tid))
+                w.bind("<Enter>", lambda e, f=btn: f.configure(bg=c["toolbar_hover"]))
+                w.bind("<Leave>", lambda e, f=btn, tid=tab_id:
+                       f.configure(bg=c["toolbar_selected"] if self._active_tab == tid else c["toolbar_bg"]))
+            self._tab_buttons[tab_id] = btn
+            btn._icon = icon_lbl
+            btn._text = text_lbl
+
+        bot = tk.Frame(self._toolbar, bg=c["toolbar_bg"])
+        bot.pack(side="bottom", fill="x", pady=12)
+        tk.Label(bot, text=f"v{VERSION}", font=("SF Pro Text", 10),
+                 bg=c["toolbar_bg"], fg=c["label_tertiary"]).pack()
+
+    def _select_tab(self, tab_id: str) -> None:
+        c = self._col
+        self._active_tab = tab_id
+        for tid, btn in self._tab_buttons.items():
+            active = tid == tab_id
+            btn.configure(bg=c["toolbar_selected"] if active else c["toolbar_bg"])
+            btn._icon.configure(bg=btn["bg"],
+                                fg=c["label_primary"] if active else c["label_secondary"])
+            btn._text.configure(bg=btn["bg"],
+                                fg=c["label_primary"] if active else c["label_secondary"])
+        self._show_content(tab_id)
+
+    # ── content area ────────────────────────────────────────────────────
+
+    def _build_content_area(self) -> None:
+        c = self._col
+        self._content_frame = tk.Frame(self._root, bg=c["window_bg"])
+        self._content_frame.pack(side="left", fill="both", expand=True)
+        self._pages: dict[str, tk.Frame] = {}
+        for tab_id, _, _ in TABS:
+            page = tk.Frame(self._content_frame, bg=c["window_bg"])
+            self._pages[tab_id] = page
+
+    def _show_content(self, tab_id: str) -> None:
+        for page in self._pages.values():
+            page.pack_forget()
+        page = self._pages[tab_id]
+        page.pack(fill="both", expand=True, padx=2, pady=2)
+        _clear_frame(page)
+        getattr(self, f"_build_{tab_id}")(page)
+
+    # ── tab: General ────────────────────────────────────────────────────
+
+    def _build_general(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "General", "Basic application preferences")
+        sf = self._section(parent)
+        self._labeled_option(sf, "Log Level",
+                             self._cfg.get("log_level", "INFO"),
+                             ["DEBUG", "INFO", "WARNING", "ERROR"],
+                             lambda v: self._set("log_level", v))
+
+    # ── tab: Behavior ───────────────────────────────────────────────────
+
+    def _build_behavior(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Behavior", "How the app starts and stays")
+        sf = self._section(parent)
+        self._mac_toggle(sf, "Start Minimized",
+                         "Launch directly to the menu bar", "start_minimized")
+        self._mac_toggle(sf, "Close to Menu Bar",
+                         "Closing the window hides instead of quitting", "close_to_menu_bar")
+        self._mac_toggle(sf, "Launch at Login",
+                         "Start automatically when you log in", "launch_at_login")
+        self._mac_toggle(sf, "Confirm Before Quit",
+                         "Ask for confirmation before quitting", "confirm_quit")
+
+    # ── tab: Streams ────────────────────────────────────────────────────
+
+    def _build_streams(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Streams", "Manage camera feeds")
+        cameras: list = self._cfg.get("cameras", [])
+        if not cameras:
+            self._streams_empty_state(parent)
+        else:
+            list_frame = tk.Frame(parent, bg=c["window_bg"], padx=20)
+            list_frame.pack(fill="both", expand=True, pady=(4, 0))
+            for i, cam in enumerate(cameras):
+                self._build_camera_card(list_frame, i, cam)
+
+        add_btn = tk.Button(
+            parent, text="+  Add Camera",
+            font=("SF Pro Text", 13, "bold"),
+            bg=c["control_active"], fg="#ffffff",
+            relief="flat", padx=24, pady=8,
+            activebackground=c["control_active"],
+            activeforeground="#ffffff",
+            command=self._add_camera_from_streams,
+        )
+        add_btn.pack(pady=(14, 20))
+
+    def _build_camera_card(self, parent: tk.Frame, idx: int, cam: dict) -> None:
+        c = self._col
+        card = tk.Frame(parent, bg=c["control_bg"], bd=0,
+                        highlightbackground=c["entry_border"],
+                        highlightthickness=1)
+        card.pack(fill="x", pady=(0, 10), ipadx=4, ipady=4)
+
+        hdr = tk.Frame(card, bg=c["control_bg"])
+        hdr.pack(fill="x", padx=12, pady=(10, 4))
+        name = cam.get("name", f"Camera {idx + 1}")
+        name_var = tk.StringVar(value=name)
+        name_ent = tk.Entry(
+            hdr, textvariable=name_var,
+            font=("SF Pro Text", 14, "bold"),
+            bg=c["control_bg"], fg=c["label_primary"],
+            insertbackground=c["label_primary"],
+            relief="flat", bd=0, highlightthickness=0,
+        )
+        name_ent.pack(side="left", fill="x", expand=True)
+        name_ent.bind("<FocusOut>", lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()))
+        name_ent.bind("<Return>", lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()))
+
+        rm = tk.Button(
+            hdr, text="\u2715", font=("SF Pro Text", 12, "bold"),
+            bg=c["control_bg"], fg=c["label_tertiary"],
+            activebackground=c["destructive"], activeforeground="#ffffff",
+            relief="flat", padx=6, pady=0, bd=0,
+            command=lambda i=idx: self._remove_camera(i),
+        )
+        rm.pack(side="right")
+        rm.bind("<Enter>", lambda e, b=rm: b.configure(fg=c["destructive"]))
+        rm.bind("<Leave>", lambda e, b=rm: b.configure(fg=c["label_tertiary"]))
+
+        sep = tk.Frame(card, bg=c["entry_border"], height=1)
+        sep.pack(fill="x", padx=12)
+
+        fields_frame = tk.Frame(card, bg=c["control_bg"])
+        fields_frame.pack(fill="x", padx=12, pady=(8, 12))
+        self._camera_field(fields_frame, "Stream URL", "stream_url", cam.get("stream_url", ""), idx)
+        self._camera_field(fields_frame, "Snap URL", "snap_url", cam.get("snap_url", ""), idx)
+
+    def _camera_field(self, parent: tk.Frame, label: str, field: str, value: str, idx: int) -> None:
+        c = self._col
+        tk.Label(parent, text=label, font=("SF Pro Text", 10, "bold"),
+                 fg=c["label_secondary"], bg=c["control_bg"]).pack(anchor="w", pady=(6, 2))
+        var = tk.StringVar(value=value)
+        ent = tk.Entry(
+            parent, textvariable=var, font=("SF Mono", 11),
+            bg=c["entry_bg"], fg=c["label_primary"],
+            insertbackground=c["label_primary"],
+            relief="flat", bd=0,
+            highlightbackground=c["entry_border"],
+            highlightcolor=c["control_active"],
+            highlightthickness=1,
+        )
+        ent.pack(fill="x", ipady=5)
+        ent.bind("<FocusOut>", lambda e, i=idx, f=field, v=var: self._update_camera_field(i, f, v.get()))
+        ent.bind("<Return>", lambda e, i=idx, f=field, v=var: self._update_camera_field(i, f, v.get()))
+
+    def _streams_empty_state(self, parent: tk.Frame) -> None:
+        c = self._col
+        ph = tk.Frame(parent, bg=c["window_bg"])
+        ph.place(relx=0.5, rely=0.38, anchor="center")
+        tk.Label(ph, text="No Cameras", font=("SF Pro Text", 16, "bold"),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack()
+        tk.Label(ph, text="Add a camera stream to start monitoring.",
+                 font=("SF Pro Text", 12),
+                 fg=c["label_tertiary"], bg=c["window_bg"]).pack(pady=(4, 0))
+
+    def _add_camera_from_streams(self) -> None:
+        cameras = self._cfg.get("cameras", [])
+        cameras.append({"name": f"Camera {len(cameras) + 1}", "stream_url": "", "snap_url": ""})
+        self._cfg["cameras"] = cameras
+        save_cameras(cameras)
+        self._select_tab("streams")
+
+    def _remove_camera(self, idx: int) -> None:
+        cameras = self._cfg.get("cameras", [])
+        if 0 <= idx < len(cameras):
+            cameras.pop(idx)
+        self._cfg["cameras"] = cameras
+        save_cameras(cameras)
+        self._select_tab("streams")
+
+    def _update_camera_field(self, idx: int, field: str, value: str) -> None:
+        cameras = self._cfg.get("cameras", [])
+        if 0 <= idx < len(cameras):
+            cameras[idx][field] = value
+            self._cfg["cameras"] = cameras
+            save_cameras(cameras)
+
+    # ── tab: Notifications ──────────────────────────────────────────────
+
+    def _build_notifications(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Notifications", "Alerts and sounds")
+        sf = self._section(parent)
+        self._mac_toggle(sf, "Enable Notifications",
+                         "Show macOS notifications for detected persons", "notifications_enabled")
+        self._mac_toggle(sf, "Notify on Family Members",
+                         "Notify when a known family member is detected", "notify_on_family")
+        self._mac_toggle(sf, "Notify on Unknown Persons",
+                         "Alert when an unknown person is detected", "notify_on_unknown")
+
+        sf2 = self._section(parent, "Sounds")
+        sounds = ["default", "alarm", "basso", "blow", "bottle", "frog",
+                  "funk", "glass", "hero", "morse", "ping", "pop",
+                  "purr", "sosumi", "submarine", "tink"]
+        self._labeled_option(sf2, "Family Member Sound",
+                             self._cfg.get("notification_sound_family", "default"),
+                             sounds, lambda v: self._set("notification_sound_family", v))
+        self._labeled_option(sf2, "Unknown Person Alert",
+                             self._cfg.get("notification_sound_alert", "alarm"),
+                             sounds, lambda v: self._set("notification_sound_alert", v))
+
+        sf3 = self._section(parent, "Do Not Disturb Schedule")
+        self._labeled_entry(sf3, "Start (HH:MM)",
+                            self._cfg.get("notification_dnd_start", ""),
+                            lambda v: self._set("notification_dnd_start", v))
+        self._labeled_entry(sf3, "End (HH:MM)",
+                            self._cfg.get("notification_dnd_end", ""),
+                            lambda v: self._set("notification_dnd_end", v))
+
+    # ── tab: Advanced ───────────────────────────────────────────────────
+
+    def _build_advanced(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Advanced", "Updates, power & networking")
+        sf = self._section(parent)
+        self._mac_toggle(sf, "Auto-Update",
+                         "Check for updates every 6 hours", "auto_update")
+        self._mac_toggle(sf, "Error Reporting",
+                         "Send error reports to GitHub Issues automatically", "error_reporting")
+        self._mac_toggle(sf, "Pause When on Battery",
+                         "Pause recognition on battery power", "pause_on_battery")
+        self._mac_toggle(sf, "Pause When Away from Home",
+                         "Pause when not connected to home WiFi", "pause_when_away")
+
+        sf2 = self._section(parent, "Home WiFi")
+        self._labeled_entry(sf2, "SSIDs (comma-separated)",
+                            self._cfg.get("home_ssids", ""),
+                            lambda v: self._set("home_ssids", v))
+
+    # ── reusable UI primitives ──────────────────────────────────────────
+
+    def _section_header(self, parent: tk.Frame, title: str, subtitle: str = "") -> None:
+        c = self._col
+        hdr = tk.Frame(parent, bg=c["window_bg"], padx=20)
+        hdr.pack(fill="x", pady=(20, 2))
+        tk.Label(hdr, text=title, font=("SF Pro Text", 22, "bold"),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(anchor="w")
+        if subtitle:
+            tk.Label(hdr, text=subtitle, font=("SF Pro Text", 13),
+                     fg=c["label_secondary"], bg=c["window_bg"]).pack(anchor="w", pady=(2, 0))
+
+    def _section(self, parent: tk.Frame, label: str = "") -> tk.Frame:
+        c = self._col
+        sf = tk.Frame(parent, bg=c["window_bg"], padx=20, pady=4)
+        sf.pack(fill="x")
+        if label:
+            tk.Label(sf, text=label, font=("SF Pro Text", 11, "bold"),
+                     fg=c["label_secondary"], bg=c["window_bg"]).pack(anchor="w", pady=(12, 4))
+        return sf
+
+    def _mac_toggle(self, parent: tk.Frame, title: str, subtitle: str, key: str) -> None:
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(10, 0))
+        left = tk.Frame(row, bg=c["window_bg"])
+        left.pack(side="left", fill="x", expand=True)
+        tk.Label(left, text=title, font=("SF Pro Text", 13),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(anchor="w")
+        tk.Label(left, text=subtitle, font=("SF Pro Text", 11),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(anchor="w", pady=(1, 0))
+        var = tk.BooleanVar(value=bool(self._cfg.get(key)))
+        cb = tk.Checkbutton(
+            row, variable=var,
+            command=lambda k=key, v=var: self._set(k, v.get()),
+            bg=c["window_bg"], fg=c["label_primary"],
+            selectcolor=c["window_bg"],
+            activebackground=c["window_bg"],
+            activeforeground=c["label_primary"],
+            font=("SF Pro Text", 13), bd=0, highlightthickness=0,
+        )
+        cb.pack(side="right", padx=(16, 0))
+
+    def _labeled_option(self, parent: tk.Frame, label: str,
+                        value: str, choices: list[str], callback) -> None:
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(8, 0))
+        tk.Label(row, text=label, font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        var = tk.StringVar(value=value)
+        menu = tk.OptionMenu(row, var, *choices, command=lambda v, cb=callback: cb(v))
+        menu.configure(bg=c["entry_bg"], fg=c["label_primary"],
+                       activebackground=c["toolbar_selected"],
+                       activeforeground=c["label_primary"],
+                       font=("SF Pro Text", 12),
+                       relief="flat", bd=0, highlightthickness=0)
+        menu["menu"].configure(bg=c["entry_bg"], fg=c["label_primary"],
+                               font=("SF Pro Text", 12))
+        menu.pack(side="right")
+
+    def _labeled_entry(self, parent: tk.Frame, label: str, value: str, callback) -> None:
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(8, 0))
+        tk.Label(row, text=label, font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        var = tk.StringVar(value=value)
+        ent = tk.Entry(row, textvariable=var,
+                       bg=c["entry_bg"], fg=c["label_primary"],
+                       insertbackground=c["label_primary"],
+                       font=("SF Mono", 12),
+                       relief="flat", bd=0,
+                       highlightbackground=c["entry_border"],
+                       highlightcolor=c["control_active"],
+                       highlightthickness=1)
+        ent.pack(side="right", ipadx=6, ipady=4)
+        ent.bind("<FocusOut>", lambda e, cb=callback, v=var: cb(v.get()))
+        ent.bind("<Return>", lambda e, cb=callback, v=var: cb(v.get()))
+
+    # ── config mutation ─────────────────────────────────────────────────
+
+    def _set(self, key: str, value) -> None:
+        self._cfg[key] = value
+        save_key(key, value)
+        self._notify_app_if_needed(key)
+
+    def _notify_app_if_needed(self, key: str) -> None:
+        if key != "launch_at_login":
+            return
+        try:
+            app_pid_file = CONFIG_DIR / "app.pid"
+            if app_pid_file.exists():
+                pid = int(app_pid_file.read_text().strip())
+                os.kill(pid, signal.SIGUSR2)
+        except Exception:
+            pass
 
 
-# ── Main ───────────────────────────────────────────────────────────────
+# ── helpers ─────────────────────────────────────────────────────────────
 
-def main():
-    try:
-        app = SettingsWindow()
-        app.run()
-    except Exception as e:
-        print(f"FATAL: {e}", file=sys.stderr)
-        sys.exit(1)
+def _clear_frame(frame: tk.Frame) -> None:
+    for w in frame.winfo_children():
+        w.destroy()
 
+
+# ── main ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    main()
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    window = SettingsWindow()
+    window._root.mainloop()

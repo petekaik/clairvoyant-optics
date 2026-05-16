@@ -119,7 +119,7 @@ pass "DMG unmountattu"
 RESOURCES="$APP_PATH/Contents/Resources"
 BIN="$APP_PATH/Contents/MacOS"
 
-for file in "eye_22.png" "eye_44.png" "settings.py"; do
+for file in "eye_22.png" "eye_44.png" "settings.py" "menu_bar.py" "web_dashboard.py"; do
     if [ -f "$RESOURCES/$file" ]; then
         pass "  $file löytyy bundlesta"
     else
@@ -171,8 +171,8 @@ if kill -0 $APP_PID 2>/dev/null; then
 else
     fail "Sovellus kaatui 5s sisällä"
     # Try fallback: direct python
-    info "Yritetään fallback: suora python..."
-    "$BIN/python" "$RESOURCES/app.py" >/dev/null 2>&1 &
+    info "Yritetään fallback: suora python menu_bar.py..."
+    "$BIN/python" "$RESOURCES/menu_bar.py" >/dev/null 2>&1 &
     APP_PID=$!
     sleep 5
     if kill -0 $APP_PID 2>/dev/null; then

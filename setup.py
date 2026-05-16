@@ -1,9 +1,11 @@
-"""setup.py — py2app configuration for minimal macOS .app bundle v4.0.2.
+"""setup.py — py2app configuration for macOS .app bundle v5.0.
 
 Usage: python setup.py py2app
 
-Main app: src/macos/app.py (rumps menu bar app, LSUIElement=True = no Dock icon).
-Settings window (src/macos/settings.py) runs as a separate process.
+Main app: src/desktop/menu_bar.py (rumps menu bar app, LSUIElement=True = no Dock icon).
+Service-oriented: IPC client ↔ clairvoyantd daemon architecture.
+Web dashboard: src/desktop/web_dashboard.py (stdlib http.server).
+Settings window: src/desktop/settings.py (Apple HIG, toolbar, dark mode, IPC+YAML).
 """
 
 import sys

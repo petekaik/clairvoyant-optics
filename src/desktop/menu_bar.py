@@ -21,7 +21,10 @@ try:
 except ImportError:
     rumps = None
 
-VERSION = "5.0.0"
+try:
+    from src.version import VERSION
+except ImportError:
+    VERSION = "5.0.1"
 
 # ── Paths ──────────────────────────────────────────────────────────────
 
@@ -44,6 +47,34 @@ else:
 
 from src.desktop.ipc_client import IPCClient
 
+# ── Web Server ─────────────────────────────────────────────────────────────
+
+_web_server_pid: int | None = None
+
+
+def _spawn_web_server(bundle_resources: Path, python_bin: Path, is_bundled: bool) -> int | None:
+    """Spawn the web dashboard server. Returns PID or None."""
+    import subprocess
+
+    if is_bundled:
+        web_script = bundle_resources / "web_dashboard.py"
+    else:
+        web_script = PROJECT_ROOT / "src" / "desktop" / "web_dashboard.py"
+
+    if not web_script.exists():
+        return None
+
+    try:
+        proc = subprocess.Popen(
+            [str(python_bin), str(web_script)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return proc.pid
+    except Exception:
+        return None
+
 # ── Menu Bar App ───────────────────────────────────────────────────────
 
 class ClairvoyantApp(rumps.App):
@@ -53,6 +84,11 @@ class ClairvoyantApp(rumps.App):
         icon = str(ASSETS / "eye_22.png") if (ASSETS / "eye_22.png").exists() else None
         super().__init__(name="Clairvoyant-Optics", title="", icon=icon, quit_button=None)
 
+        # Spawn web dashboard server
+        global _web_server_pid
+        if _web_server_pid is None:
+            self._start_web_server()
+
         self._ipc = IPCClient()
         self._status = {"state": "disconnected", "cameras": {}, "last_detection": None}
         self._poll_thread: threading.Thread | None = None
@@ -60,6 +96,20 @@ class ClairvoyantApp(rumps.App):
 
         self._build_menu()
         self._connect_daemon()
+
+    # ── Web server management ───────────────────────────────────────
+
+    def _start_web_server(self):
+        """Spawn web dashboard as background process."""
+        global _web_server_pid
+        bundle_resources = Path(__file__).resolve().parent
+        if IS_BUNDLED:
+            python_bin = bundle_resources.parent / "MacOS" / "python"
+        else:
+            python_bin = Path(sys.executable)
+        pid = _spawn_web_server(bundle_resources, python_bin, IS_BUNDLED)
+        if pid:
+            _web_server_pid = pid
 
     # ── Menu construction ───────────────────────────────────────────
 
@@ -256,7 +306,7 @@ class ClairvoyantApp(rumps.App):
         else:
             # Dev mode: run settings.py directly
             import subprocess
-            settings_script = PROJECT_ROOT / "src" / "macos" / "settings.py"
+            settings_script = PROJECT_ROOT / "src" / "desktop" / "settings.py"
             if settings_script.exists():
                 subprocess.Popen(
                     [sys.executable, str(settings_script)],
