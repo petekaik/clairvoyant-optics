@@ -2,6 +2,46 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.1.0] — 2026-05-15
+
+### Architecture (v5 — service-oriented)
+
+- **IPC-based three-layer architecture** — daemon (clairvoyantd), desktop (menu bar + settings + web dashboard), service stubs (camera_manager, ml_manager, notification_bus)
+- Unix domain socket communication at `~/.clairvoyant-optics/ipc.sock`
+- Config store with YAML persistence + SIGHUP reload
+- State machine orchestrator (idle → starting → running → stopping)
+
+### Added
+
+- **Apple HIG settings window** — toolbar-based tab layout (macOS System Settings style), SF fonts, full dark mode support
+- **`_mac_button()` helper** — tk.Label-based buttons that respect macOS dark mode (tk.Button ignores `bg` on macOS)
+- **`_force_tk_dark_mode()`** — `::tk::unsupported::MacWindowStyle appearance dark` for correct Tk dark rendering
+- **Dark mode detection** — `plistlib` reads `.GlobalProperties.plist` directly (Strategy 0)
+- **API Host/Port configuration** — General tab: Host + Port Entry fields with "Apply & Test" button, socket bind validation with green/red status feedback
+- **Launch at Login toggle** — General tab, persisted via IPC
+- **Settings.app wrapper** — standalone `.app` bundle that launches settings window, visible in Dock
+- **Settings window hotkeys** — ⌘S (Settings), ⌘, (Settings), ⌘Q (Quit)
+
+### Fixed
+
+- **macOS Sequoia render delay (B6)** — `update_idletasks()` + `update()` across all three render paths (`__init__`, `_rebuild_ui()`, `_show_content()`) to force immediate paint through WindowServer
+- **Thread-safe dark mode (B5)** — `NSDistributedNotificationCenter` observer runs in background thread → `self._root.after(0, _do_theme_changed)` for Tk thread-safety
+- **Camera persistence (B7)** — section name mismatch (`"streams"` vs `"cameras"`), daemon special-case handler for `list[CameraConfig]` data
+- **Settings red close button** — `_on_close()` always calls `_quit()`, never `withdraw()`
+- **tk.Button contrast** in dark mode → replaced with `_mac_button()` throughout
+
+### Changed
+
+- **Settings tabs reduced to 4** — General, Streams, Notifications, Advanced (Behavior tab removed: Start Minimized, Close to Menu, Confirm Quit removed)
+- **Launch at Login moved** from Behavior → General tab
+- **`NSRequiresAquaSystemAppearance=False`** in Info.plist for native window chrome dark mode
+
+### Known Issues (Backlog)
+
+- Live dark mode update (no-restart theme switch) — thread-safety partial fix, full fix deferred
+- `home_ssids` resets on clean reinstall
+- API hot reload requires manual "Apply & Test" click
+
 ## [2.2.0] — 2026-05-10
 
 ### Added

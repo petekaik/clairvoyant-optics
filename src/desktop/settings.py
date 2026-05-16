@@ -143,6 +143,7 @@ def _key_to_section(key: str) -> str:
         "confirm_quit": "general", "auto_update": "advanced",
         "error_reporting": "advanced", "pause_on_battery": "advanced",
         "pause_when_away": "advanced", "home_ssids": "advanced",
+        "api_host": "web", "api_port": "web",
         "notifications_enabled": "notifications",
         "notify_on_family": "notifications", "notify_on_unknown": "notifications",
         "notification_sound_family": "notifications",
@@ -203,9 +204,8 @@ def _mac_colors(dark: bool) -> dict:
 
 TABS = [
     ("general",       "General",        "\u2699"),      # ⚙ gear
-    ("behavior",      "Behavior",       "\u2691"),      # ⚑ flag
     ("streams",       "Streams",        "\u25B6"),      # ▶ play
-    ("notifications", "Notifications",  "\u269D"),      # ⚝ outlined white star (same block as ⚙⚑ — never emoji)
+    ("notifications", "Notifications",  "\u269D"),      # ⚝ outlined white star
     ("advanced",      "Advanced",       "\u2305"),      # ⌅ enter
 ]
 
@@ -592,32 +592,100 @@ class SettingsWindow:
         page.pack(fill="both", expand=True, padx=2, pady=2)
         _clear_frame(page)
         getattr(self, f"_build_{tab_id}")(page)
+        # Force immediate paint — on macOS Sequoia WindowServer defers
+        # widget rendering until next user interaction without this.
+        self._root.update_idletasks()
+        self._root.update()
 
     # ── tab: General ────────────────────────────────────────────────────
 
     def _build_general(self, parent: tk.Frame) -> None:
         c = self._col
-        self._section_header(parent, "General", "Basic application preferences")
+        self._section_header(parent, "General", "Application & API preferences")
         sf = self._section(parent)
         self._labeled_option(sf, "Log Level",
                              self._cfg.get("log_level", "INFO"),
                              ["DEBUG", "INFO", "WARNING", "ERROR"],
                              lambda v: self._set("log_level", v))
-
-    # ── tab: Behavior ───────────────────────────────────────────────────
-
-    def _build_behavior(self, parent: tk.Frame) -> None:
-        c = self._col
-        self._section_header(parent, "Behavior", "How the app starts and stays")
-        sf = self._section(parent)
-        self._mac_toggle(sf, "Start Minimized",
-                         "Launch directly to the menu bar", "start_minimized")
-        self._mac_toggle(sf, "Close to Menu Bar",
-                         "Closing the window hides instead of quitting", "close_to_menu_bar")
         self._mac_toggle(sf, "Launch at Login",
                          "Start automatically when you log in", "launch_at_login")
-        self._mac_toggle(sf, "Confirm Before Quit",
-                         "Ask for confirmation before quitting", "confirm_quit")
+
+        # API server
+        self._section_header(parent, "API Server", "Web dashboard & REST API", pad_top=24)
+        api_sf = self._section(parent)
+        api_host_var = tk.StringVar(value=self._cfg.get("api_host", "127.0.0.1"))
+        api_port_var = tk.StringVar(value=str(self._cfg.get("api_port", 8765)))
+        self._status_var = tk.StringVar(value="")
+
+        row1 = tk.Frame(api_sf, bg=c["window_bg"])
+        row1.pack(fill="x", pady=(6, 0))
+        tk.Label(row1, text="Host", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        host_ent = tk.Entry(row1, textvariable=api_host_var,
+                            bg=c["entry_bg"], fg=c["label_primary"],
+                            insertbackground=c["label_primary"],
+                            font=("SF Mono", 12),
+                            relief="flat", bd=0,
+                            highlightbackground=c["entry_border"],
+                            highlightcolor=c["control_active"],
+                            highlightthickness=1)
+        host_ent.pack(side="right", ipadx=6, ipady=4)
+
+        row2 = tk.Frame(api_sf, bg=c["window_bg"])
+        row2.pack(fill="x", pady=(6, 0))
+        tk.Label(row2, text="Port", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        port_ent = tk.Entry(row2, textvariable=api_port_var,
+                            bg=c["entry_bg"], fg=c["label_primary"],
+                            insertbackground=c["label_primary"],
+                            font=("SF Mono", 12),
+                            relief="flat", bd=0,
+                            highlightbackground=c["entry_border"],
+                            highlightcolor=c["control_active"],
+                            highlightthickness=1)
+        port_ent.pack(side="right", ipadx=6, ipady=4)
+
+        # Status label
+        status_lbl = tk.Label(api_sf, textvariable=self._status_var,
+                              font=("SF Pro Text", 11),
+                              bg=c["window_bg"], fg=c["label_secondary"])
+        status_lbl.pack(anchor="w", pady=(6, 0))
+
+        apply_btn = self._mac_button(api_sf, "Apply & Test",
+                                     lambda: self._apply_api_settings(api_host_var.get(), api_port_var.get()),
+                                     style="primary", font_size=12, padx=16, pady=5)
+        apply_btn.pack(anchor="w", pady=(8, 0))
+
+    def _apply_api_settings(self, host: str, port_str: str) -> None:
+        c = self._col
+        try:
+            port = int(port_str)
+        except ValueError:
+            self._status_var.set("❌ Port must be a number (1–65535)")
+            return
+
+        if not host.strip():
+            self._status_var.set("❌ Host cannot be empty")
+            return
+        if port < 1 or port > 65535:
+            self._status_var.set("❌ Port must be between 1–65535")
+            return
+
+        # Try binding to check availability
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        try:
+            s.bind((host, port))
+            s.close()
+        except socket.error as e:
+            self._status_var.set(f"❌ {host}:{port} — {e.strerror}")
+            return
+
+        # Save via IPC
+        self._set("api_host", host)
+        self._set("api_port", port)
+        self._status_var.set(f"✅ {host}:{port} — saved & available")
 
     # ── tab: Streams ────────────────────────────────────────────────────
 
@@ -785,10 +853,11 @@ class SettingsWindow:
 
     # ── reusable UI primitives ──────────────────────────────────────────
 
-    def _section_header(self, parent: tk.Frame, title: str, subtitle: str = "") -> None:
+    def _section_header(self, parent: tk.Frame, title: str, subtitle: str = "",
+                        pad_top: int = 20) -> None:
         c = self._col
         hdr = tk.Frame(parent, bg=c["window_bg"], padx=20)
-        hdr.pack(fill="x", pady=(20, 2))
+        hdr.pack(fill="x", pady=(pad_top, 2))
         tk.Label(hdr, text=title, font=("SF Pro Text", 22, "bold"),
                  fg=c["label_primary"], bg=c["window_bg"]).pack(anchor="w")
         if subtitle:

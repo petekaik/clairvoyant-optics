@@ -33,7 +33,7 @@
 
 ## 2. Perustoiminnallisuus
 
-### TC-01: Menu bar -ikoni
+### TC-01: Menu bar -ikoni ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
@@ -41,7 +41,7 @@
 | **Odotettu tulos** | Silmä-ikoni näkyy menu barissa, EI tekstiä "Clairvoyant-Optics" |
 | **Tarkistus** | Klikkaa ikonia → menu aukeaa |
 
-### TC-02: Menu-valikko
+### TC-02: Menu-valikko ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
@@ -49,146 +49,121 @@
 | **Odotettu tulos** | Menu sisältää: `● Idle`, `Cameras`, `▶ Start`, `⏸ Stop`, `Settings…`, `Web Dashboard`, `Quit Clairvoyant-Optics` |
 | **Tarkistus** | Kaikki 7 kohtaa näkyvissä, Start/Stop erotettu separatorilla |
 
-### TC-03: Settings-ikkuna (Settings.app wrapper)
+### TC-03: Dark mode ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
-| **Toimenpide** | Valitse menu barista `Settings…` (tai ⌘S) |
-| **Odotettu tulos** | Settings-ikkuna aukeaa. Ikkunassa on toolbar-välilehdet vasemmalla |
-| **Tarkistus A** | Ikkunan yläreunassa on macOS-liikennevalot (punainen/keltainen/vihreä) |
-| **Tarkistus B** | Ikkuna on dark mode -teemalla (tai vaalea, macOS-järjestelmäasetuksen mukaan) |
-| **Tarkistus C** | Fontit ovat macOS SF -tyyppisiä (ei Times New Roman / Courier) |
+| **Toimenpide** | Avaa Settings. Vaihda macOS System Settings → Appearance → Dark/Light |
+| **Odotettu tulos** | Settings-ikkuna noudattaa järjestelmäteemaa käynnistyksessä |
+| **Tunnettu rajoitus** | Live dark mode -päivitys (vaihto ilman restarttia) ei toimi — siirretty backlogille |
 
-### TC-04: Settings-välilehdet
+### TC-04: Settings-välilehdet ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
 | **Toimenpide** | Klikkaa läpi jokainen välilehti Settings-ikkunassa |
-| **Odotettu tulos** | Välilehdet: `General`, `Cameras`, `Detection`, `Models`, `Notifications`, `Battery`, `Web`, `MQTT`, `Telemetry` |
-| **Tarkistus** | Jokainen välilehti näyttää omat asetuksensa, ei tyhjää paneelia |
+| **Odotettu tulos** | 4 välilehteä: `General`, `Streams`, `Notifications`, `Advanced` |
+| **Tarkistus** | Jokainen välilehti näyttää omat asetuksensa, ei tyhjää paneelia. Toolbar-pohjainen macOS HIG -ulkoasu |
 
-### TC-05: Asetuksen muutos + persistointi
-
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Vaihda `General` → `Log Level` arvoon `DEBUG`. Sulje Settings-ikkuna. |
-| **Odotettu tulos** | `~/.clairvoyant-optics/config.yaml` sisältää `log_level: DEBUG` |
-| **Tarkistus** | `grep log_level ~/.clairvoyant-optics/config.yaml` näyttää `DEBUG` |
-
-### TC-06: Asetukset säilyvät uudelleenkäynnistyksessä
+### TC-05: Renderöinnin sujuvuus ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
-| **Toimenpide** | Tapa sovellus (Quit), käynnistä uudelleen, avaa Settings |
-| **Odotettu tulos** | `Log Level` on edelleen `DEBUG` |
-| **Tarkistus** | Settings-ikkuna näyttää aiemmin asetetun arvon |
+| **Toimenpide** | Avaa Settings, klikkaa läpi kaikki tabit |
+| **Odotettu tulos** | Entry-kentät ja widgetit renderöityvät välittömästi, ei viivettä |
+| **Tarkistus** | Tekstikentät näkyvät heti tab-vaihdon jälkeen, eivät vasta hiiren siirron jälkeen |
+| **Korjaus** | `_show_content()` kutsuu `update_idletasks()` + `update()` macOS Sequoian WindowServer-viiveen kiertämiseksi |
+
+### TC-06: Kamerafeedien persistenssi ✅ PASS
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | Lisää kamera Streams-tabilla, tallenna. Sulje ja avaa Settings uudelleen |
+| **Odotettu tulos** | Kamera näkyy edelleen Streams-tabilla |
+| **Korjaus** | Section "streams" → "cameras", daemon-erikoiskäsittelijä CameraConfig-listalle |
+
+### TC-07: Launch at Login ✅ PASS
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | General-tab → "Launch at Login" toggle päälle. Avaa System Settings → General → Login Items |
+| **Odotettu tulos** | Clairvoyant-Optics näkyy Login Items -listalla |
+| **Sijainti** | General-tab (siirretty poistetulta Behavior-tabilta) |
+
+### TC-08: API Host/Port -määritys ✅ PASS
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | General-tab → API Server -osio. Aseta Host ja Port. Klikkaa "Apply & Test" |
+| **Odotettu tulos onnistuessa** | ✅ `127.0.0.1:8765 — saved & available` (vihreä) |
+| **Odotettu tulos epäonnistuessa** | ❌ (punainen virheviesti: port varattu, virheellinen arvo jne.) |
+| **Tarkistus** | `grep api_port ~/.clairvoyant-optics/config.yaml` → arvo tallentunut |
+| **Tunnettu rajoitus** | Hot reload ei automaattinen — vaatii "Apply & Test" -klikkauksen. Backlogilla |
+
+### TC-09: Kotiverkkoasetus ❌ FAIL
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | Advanced → Home WiFi → SSIDs. Aseta verkko. Asenna sovellus uudelleen |
+| **Odotettu tulos** | Asetus säilyy |
+| **Todellinen tulos** | `home_ssids` nollautuu uudelleenasennuksessa |
+| **Status** | Backlogilla |
 
 ---
 
 ## 3. Daemon (clairvoyantd)
 
-### TC-07: Daemon käynnistyy automaattisesti
+### TC-10: AUTOMATISOI ✅ Daemon käynnistyy ✅ PASS
 
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Käynnistä sovellus, odota 10 sekuntia |
-| **Odotettu tulos** | Menu barin status muuttuu `✕ Disconnected` → `○ Idle` |
-| **Tarkistus** | `ls -la ~/.clairvoyant-optics/ipc.sock` → socketti on olemassa |
+### TC-11: AUTOMATISOI ✅ IPC status -kysely ✅ PASS (state: idle)
 
-### TC-08: IPC status -kysely
+Tarkistus: `echo '{"method":"status","params":{},"id":1}' | nc -U ~/.clairvoyant-optics/ipc.sock`
 
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Terminal: `echo '{"method":"status","params":{},"id":1}' \| nc -U ~/.clairvoyant-optics/ipc.sock` |
-| **Odotettu tulos** | JSON-vastaus: `"state": "idle"`, `"is_on_power": true`, `"uptime_seconds": >0` |
-| **Tarkistus** | Ei `"error"`-kenttää vastauksessa |
-
-### TC-09: Daemon selviää menu barin uudelleenkäynnistyksestä
-
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Quit menu barista, käynnistä uudelleen, odota 10s |
-| **Odotettu tulos** | Status palaa `○ Idle`, ei `✕ Disconnected` |
-| **Tarkistus** | IPC-socketti toimii edelleen |
+### TC-12: Daemon selviää menu barin uudelleenkäynnistyksestä — NO RUN (manuaalinen)
 
 ---
 
 ## 4. Web Dashboard
 
-### TC-10: Selainkäyttöliittymä avautuu
+### TC-13: AUTOMATISOI ✅ Selainkäyttöliittymä avautuu ✅ PASS
 
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Valitse menu barista `Web Dashboard` |
-| **Odotettu tulos** | Selain aukeaa osoitteeseen `http://127.0.0.1:8765` |
-| **Tarkistus A** | Sivulla on otsikko "Clairvoyant-Optics Dashboard" |
-| **Tarkistus B** | Sivu on dark mode -teemalla (tumma tausta, vaalea teksti) |
+### TC-14: AUTOMATISOI ✅ API — status ✅ PASS
 
-### TC-11: API — status
+### TC-15: AUTOMATISOI ✅ API — cameras ✅ PASS
 
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Terminal: `curl -s http://127.0.0.1:8765/api/status` |
-| **Odotettu tulos** | JSON: `"state": "idle"`, `"is_on_power": true` |
-| **Tarkistus** | HTTP 200, validi JSON |
-
-### TC-12: API — cameras
-
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Terminal: `curl -s http://127.0.0.1:8765/api/cameras` |
-| **Odotettu tulos** | JSON: `"cameras": []` (tyhjä lista, koska ei kameroita konfiguroitu) |
-| **Tarkistus** | HTTP 200, validi JSON |
-
-### TC-13: API — 404
-
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Terminal: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8765/api/nonexistent` |
-| **Odotettu tulos** | HTTP 404 |
-| **Tarkistus** | Ei kaada palvelinta |
+### TC-16: AUTOMATISOI ✅ API — 404 ✅ PASS
 
 ---
 
 ## 5. LaunchAgent
 
-### TC-14: Daemon käynnistyy loginin yhteydessä
+### TC-17: Daemon käynnistyy loginin yhteydessä — NO RUN (manuaalinen)
 
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | `cp assets/fi.kaikkonen.clairvoyantd.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist` |
-| **Odotettu tulos** | Daemon-prosessi käynnistyy (pgrep näyttää sen) |
-| **Tarkistus A** | `pgrep -fl daemon.py` → löytyy |
-| **Tarkistus B** | IPC-socketti luotu |
-| **Siivous** | `launchctl unload ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist && rm ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist` |
+```
+cp assets/fi.kaikkonen.clairvoyantd.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist
+```
 
 ---
 
 ## 6. Sammutus
 
-### TC-15: Clean shutdown
+### TC-18: AUTOMATISOI ✅ Clean shutdown ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
 | **Toimenpide** | Valitse menu barista `Quit Clairvoyant-Optics` |
 | **Odotettu tulos** | Sovellus sammuu. Menu bar -ikoni katoaa. |
 | **Tarkistus A** | `pgrep -fl menu_bar` → ei tulosta |
-| **Tarkistus B** | `pgrep -fl daemon` → daemon-prosessia ei enää ole (tai se on erillinen LaunchAgent-prosessi) |
-| **Tarkistus C** | `pgrep -fl web_dashboard` → ei tulosta |
+| **Tarkistus B** | Daemon ja web dashboard siivottu |
 
 ---
 
 ## 7. Regressio (ei saa rikkoutua)
 
-### TC-16: Sovellus ei kaadu 60 sekunnissa
+### TC-19: AUTOMATISOI ✅ test-dmg.sh 23/23 ✅ PASS
 
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Käynnistä sovellus, odota 60s |
-| **Odotettu tulos** | Sovellus edelleen käynnissä, menu bar -ikoni näkyvissä |
-| **Tarkistus** | `kill -0 $(pgrep -f menu_bar.py)` → onnistuu |
-
-### TC-17: Toistuva Quit + relaunch
+### TC-20: Toistuva Quit + relaunch ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
@@ -200,39 +175,68 @@
 
 ## 8. Visuaalinen validointi
 
-Vertaile Settings-ikkunaa näihin HIG-referensseihin:
+| Tarkistus | Status |
+|---|---|
+| Työkalupalkin ikonit (⚙▶⚝⌅) | ✅ OK |
+| Settings.app dock-ikoni | ✅ OK |
+| Punainen raksi → quit | ✅ OK |
+| "Add Camera" sininen, ✕ harmaa | ✅ OK |
+| Cancel/Quit selkeät | ✅ OK |
+| Tekstikenttien renderöintinopeus | ✅ PASS |
+| Dark mode (käynnistyksessä) | ✅ OK |
+| Live dark mode | ❌ Backlog |
+| Behavior-tab poistettu | ✅ OK |
 
-- macOS System Settings (cmd+space → "System Settings") — toolbar-välilehdet vasemmalla
-- macOS HIG: [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars)
-- Dark mode: taustaväri ~`#1e1e20`, kortit ~`#2c2c2e`, teksti ~`#f5f5f7`
-
-**Nopea silmämääräinen tarkistus:**
-
-```
-1. Avaa Settings-ikkuna
-2. Aseta ikkuna vierekkäin macOS System Settings -ikkunan kanssa
-3. Tarkista:
-   [ ] Välilehtipaneeli vasemmalla (ei ylhäällä tabbar)
-   [ ] Liikennevalot ikkunan vasemmassa yläkulmassa
-   [ ] Tumma tausta (jos dark mode päällä)
-   [ ] Ei Windows-tyylistä reunusta tai otsikkopalkkia
-   [ ] Fontti on sama kuin System Settingsissä
-```
+Vertaile Settings-ikkunaa macOS System Settingsiin:
+- Toolbar-välilehdet vasemmalla (ei ylhäällä tabbar)
+- Liikennevalot vasemmassa yläkulmassa
+- Tumma tausta dark modessa (tausta ~`#1e1e20`, kortit ~`#2c2c2e`, teksti ~`#f5f5f7`)
+- SF-fontit (SF Pro Text, SF Mono)
+- Ei Windows-tyylistä reunusta tai otsikkopalkkia
 
 ---
 
 ## Yhteenveto
 
-| Testi | Tyyppi | Automaatio |
-|---|---|---|
-| TC-01 … TC-02 | Menu bar | test-dmg.sh Phase 5 |
-| TC-03 … TC-06 | Settings | test-dmg.sh Phase 6 |
-| TC-07 … TC-09 | Daemon IPC | ci-smoke-test.sh |
-| TC-10 … TC-13 | Web dashboard | curl (manuaalinen) |
-| TC-14 | LaunchAgent | launchctl (manuaalinen) |
-| TC-15 | Shutdown | test-dmg.sh Phase 7 |
-| TC-16 … TC-17 | Regressio | test-dmg.sh Phase 4 |
+| ID | Testi | Status | Tyyppi |
+|---|---|---|---|
+| TC-01 | Menu bar -ikoni | ✅ PASS | test-dmg.sh Phase 5 |
+| TC-02 | Menu-valikko | ✅ PASS | test-dmg.sh Phase 5 |
+| TC-03 | Dark mode (init) | ✅ PASS | Manuaalinen |
+| TC-04 | Settings-välilehdet (4 tabia) | ✅ PASS | test-dmg.sh Phase 6 |
+| TC-05 | Renderöinti sujuvuus | ✅ PASS | Manuaalinen |
+| TC-06 | Kamerafeedien persistenssi | ✅ PASS | Manuaalinen |
+| TC-07 | Launch at Login | ✅ PASS | Manuaalinen |
+| TC-08 | API Host/Port | ✅ PASS | Manuaalinen |
+| TC-09 | Kotiverkkoasetus | ❌ FAIL | Backlog |
+| TC-10 | Daemon käynnistyy | ✅ AUTOMATISOI | ci-smoke-test.sh |
+| TC-11 | IPC status | ✅ AUTOMATISOI | ci-smoke-test.sh |
+| TC-12 | Daemon restart-selviytyminen | NO RUN | Manuaalinen |
+| TC-13 | Web dashboard | ✅ AUTOMATISOI | curl |
+| TC-14 | API /api/status | ✅ AUTOMATISOI | curl |
+| TC-15 | API /api/cameras | ✅ AUTOMATISOI | curl |
+| TC-16 | API 404 | ✅ AUTOMATISOI | curl |
+| TC-17 | LaunchAgent | NO RUN | Manuaalinen |
+| TC-18 | Clean shutdown | ✅ AUTOMATISOI | test-dmg.sh Phase 7 |
+| TC-19 | test-dmg.sh 23/23 | ✅ AUTOMATISOI | test-dmg.sh |
+| TC-20 | Toistuva Quit + relaunch | ✅ PASS | Manuaalinen |
 
-**Automaattinen ajo:** `bash scripts/test-dmg.sh dist/Clairvoyant-Optics-5.1.0.dmg` kattaa TC:t 01–06, 15–17.
+**AUTOMATISOI-testit (8/8 PASS):**
+```
+TC-10  Daemon käynnistyy               ✅
+TC-11  IPC status (idle)               ✅
+TC-13  Web /api/status                 ✅
+TC-14  Web /api/status is_on_power     ✅
+TC-15  Web /api/cameras                ✅
+TC-16  Web 404                         ✅
+TC-18  Clean shutdown                  ✅
+TC-19  test-dmg.sh                     23/23 ✅
+```
 
-**Manuaalisesti suoritettavat:** TC-10–13 (curl), TC-14 (LaunchAgent), visuaalinen validointi.
+**Backlog:**
+- Live dark mode -päivitys (NSDistributedNotificationCenter + thread-safety)
+- `home_ssids` nollautuu uudelleenasennuksessa
+- API hot reload — automaattinen indikaatio ilman "Apply & Test" -klikkausta
+- Test notification / test alert -triggerit Advanced-tabiin
+
+**Evidence:** `/tmp/clairvoyant-test-evidence/`

@@ -53,24 +53,42 @@ pip install -e .
 
 All settings live in `~/.clairvoyant-optics/config.yaml`. Use the **Settings…** window (⌘S from menu bar) for GUI configuration, or edit the YAML file directly.
 
+### Settings tabs
+
+| Tab | Content |
+|---|---|
+| **General** (⚙) | Log Level, Launch at Login, API Server (Host + Port + Apply & Test) |
+| **Streams** (▶) | Camera management — add/remove cameras, stream URLs, snap URLs |
+| **Notifications** (⚝) | Notification toggles, alert sounds, Do Not Disturb schedule |
+| **Advanced** (⌅) | Auto-Update, Error Reporting, Battery/power settings, Home WiFi SSIDs |
+
+The settings window follows [macOS HIG toolbar design](https://developer.apple.com/design/human-interface-guidelines/toolbars) with a left-side tab bar, SF fonts, and full dark mode support.
+
 ```yaml
 cameras:
   - name: front_yard
-    stream: http://192.168.1.100:8888/front-yard/index.m3u8
-    snap: https://192.168.1.101/snap.jpeg
-
-detection:
-  person_confidence: 0.5
-  face_confidence: 0.7
-  frame_interval: 5
+    stream_url: http://192.168.1.100:8888/front-yard/index.m3u8
+    snap_url: https://192.168.1.101/snap.jpeg
 
 web:
   host: 127.0.0.1
   port: 8765
 
-battery:
+notifications:
+  enabled: true
+  notify_on_family: true
+  notify_on_unknown: true
+  notification_sound_family: default
+  notification_sound_alert: alarm
+  notification_dnd_start: "22:00"
+  notification_dnd_end: "07:00"
+
+advanced:
+  auto_update: false
+  error_reporting: false
   pause_on_battery: false
-  home_ssids: []
+  pause_when_away: false
+  home_ssids: ""
 ```
 
 Settings changes are applied instantly via IPC — no restart needed.
@@ -105,7 +123,7 @@ Available at `http://127.0.0.1:8765`:
 | `GET /api/status` | JSON: pipeline state, camera health, battery |
 | `GET /api/cameras` | JSON: camera list with connection status |
 
-The dashboard is a self-contained stdlib `http.server` — no FastAPI or external dependencies.
+The dashboard is a self-contained stdlib `http.server` — no FastAPI or external dependencies. API host/port configurable in Settings → General → API Server.
 
 ## Project Structure
 
@@ -148,6 +166,19 @@ src/
 
 Build produces `dist/Clairvoyant-Optics-5.1.0.dmg` (~15 MB).
 
+## Testing
+
+### Automated
+
+```bash
+bash scripts/test-dmg.sh dist/Clairvoyant-Optics-5.1.0.dmg  # 23 tests, full GUI lifecycle
+bash scripts/ci-smoke-test.sh                                 # 19 tests, headless
+```
+
+### UAT
+
+Full User Acceptance Testing spec in [UAT.md](UAT.md). 20 test cases, 8 fully automated (AUTOMATISOI ✅).
+
 ## Performance (MacBook Air M1, 8 GB)
 
 | Component | Resolution | Inference | Load |
@@ -160,6 +191,8 @@ Build produces `dist/Clairvoyant-Optics-5.1.0.dmg` (~15 MB).
 ## Known Limitations
 
 - **ML models not bundled** — YOLO/InsightFace ONNX models are not included in the DMG (would bloat to 500+ MB). First-run detection downloads them or you place them in `models/`. Stubs currently return idle/no-camera state.
+- **Live dark mode** — Settings window requires app restart to pick up theme changes. On backlog for future fix.
+- **`home_ssids` resets on reinstall** — Home WiFi SSID list is stored in `config.yaml` inside the app data directory, which is cleared on fresh install.
 - **Photos.app iCloud** — "Optimize Mac Storage" breaks face import. Use manual enrollment or download originals.
 - **Self-signed camera certs** — Snap JPEG endpoints need `verify=False`.
 - **Gatekeeper** — Right-click → Open once to trust permanently.
