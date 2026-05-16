@@ -17,7 +17,7 @@ All notable changes to Clairvoyant-Optics.
 - **`_mac_button()` helper** — tk.Label-based buttons that respect macOS dark mode (tk.Button ignores `bg` on macOS)
 - **`_force_tk_dark_mode()`** — `::tk::unsupported::MacWindowStyle appearance dark` for correct Tk dark rendering
 - **Dark mode detection** — `plistlib` reads `.GlobalProperties.plist` directly (Strategy 0)
-- **API Host/Port configuration** — General tab: Host + Port Entry fields with "Apply & Test" button, socket bind validation with green/red status feedback
+- **API Host/Port configuration** — General tab: Host + Port Entry fields with 800ms debounce hot reload, automatic socket bind validation with green/red status feedback
 - **Launch at Login toggle** — General tab, persisted via IPC
 - **Settings.app wrapper** — standalone `.app` bundle that launches settings window, visible in Dock
 - **Settings window hotkeys** — ⌘S (Settings), ⌘, (Settings), ⌘Q (Quit)
@@ -30,6 +30,9 @@ All notable changes to Clairvoyant-Optics.
 - **Settings red close button** — `_on_close()` always calls `_quit()`, never `withdraw()`
 - **tk.Button contrast** in dark mode → replaced with `_mac_button()` throughout
 
+- **`home_ssids` section mapping** — `_key_to_section()` mapped `home_ssids` to `"advanced"` but daemon expects `"battery"` → fixed to `"battery"` (matches `BatteryConfig`), verified IPC roundtrip
+- **API hot reload** — "Apply & Test" button replaced with `trace_add("write")` + 800ms debounce, validation fires automatically on keystroke
+
 ### Changed
 
 - **Settings tabs reduced to 4** — General, Streams, Notifications, Advanced (Behavior tab removed: Start Minimized, Close to Menu, Confirm Quit removed)
@@ -39,8 +42,6 @@ All notable changes to Clairvoyant-Optics.
 ### Known Issues (Backlog)
 
 - Live dark mode update (no-restart theme switch) — thread-safety partial fix, full fix deferred
-- `home_ssids` resets on clean reinstall
-- API hot reload requires manual "Apply & Test" click
 
 ## [2.2.0] — 2026-05-10
 

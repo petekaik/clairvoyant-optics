@@ -90,24 +90,23 @@
 | **Odotettu tulos** | Clairvoyant-Optics näkyy Login Items -listalla |
 | **Sijainti** | General-tab (siirretty poistetulta Behavior-tabilta) |
 
-### TC-08: API Host/Port -määritys ✅ PASS
+### TC-08: API Host/Port — hot reload ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
-| **Toimenpide** | General-tab → API Server -osio. Aseta Host ja Port. Klikkaa "Apply & Test" |
-| **Odotettu tulos onnistuessa** | ✅ `127.0.0.1:8765 — saved & available` (vihreä) |
+| **Toimenpide** | General-tab → API Server -osio. Kirjoita uusi Host tai Port |
+| **Odotettu tulos onnistuessa** | ✅ `127.0.0.1:8765 — saved` (vihreä, ilmestyy 800ms viiveellä) |
 | **Odotettu tulos epäonnistuessa** | ❌ (punainen virheviesti: port varattu, virheellinen arvo jne.) |
-| **Tarkistus** | `grep api_port ~/.clairvoyant-optics/config.yaml` → arvo tallentunut |
-| **Tunnettu rajoitus** | Hot reload ei automaattinen — vaatii "Apply & Test" -klikkauksen. Backlogilla |
+| **Tarkistus** | `grep api_port ~/.clairvoyant-optics/config.yaml` → arvo tallentunut automaattisesti |
+| **Korjaus** | `trace_add("write")` + 800ms debounce korvasi manuaalisen "Apply & Test" -napin |
 
-### TC-09: Kotiverkkoasetus ❌ FAIL
+### TC-09: Kotiverkkoasetus ✅ PASS
 
 | Kohde | Kuvaus |
 |---|---|
-| **Toimenpide** | Advanced → Home WiFi → SSIDs. Aseta verkko. Asenna sovellus uudelleen |
-| **Odotettu tulos** | Asetus säilyy |
-| **Todellinen tulos** | `home_ssids` nollautuu uudelleenasennuksessa |
-| **Status** | Backlogilla |
+| **Toimenpide** | Advanced → Home WiFi → SSIDs. Aseta verkko. Käynnistä sovellus uudelleen |
+| **Odotettu tulos** | Asetus säilyy `~/.clairvoyant-optics/config.yaml` -tiedostossa daemonin `battery.home_ssids`-kentässä |
+| **Korjaus** | `_key_to_section` mappasi `home_ssids → "advanced"`, daemon odotti `"battery"` → korjattu |
 
 ---
 
@@ -207,8 +206,8 @@ Vertaile Settings-ikkunaa macOS System Settingsiin:
 | TC-05 | Renderöinti sujuvuus | ✅ PASS | Manuaalinen |
 | TC-06 | Kamerafeedien persistenssi | ✅ PASS | Manuaalinen |
 | TC-07 | Launch at Login | ✅ PASS | Manuaalinen |
-| TC-08 | API Host/Port | ✅ PASS | Manuaalinen |
-| TC-09 | Kotiverkkoasetus | ❌ FAIL | Backlog |
+| TC-08 | API Host/Port (hot reload) | ✅ PASS | Manuaalinen |
+| TC-09 | Kotiverkkoasetus | ✅ PASS | Manuaalinen |
 | TC-10 | Daemon käynnistyy | ✅ AUTOMATISOI | ci-smoke-test.sh |
 | TC-11 | IPC status | ✅ AUTOMATISOI | ci-smoke-test.sh |
 | TC-12 | Daemon restart-selviytyminen | NO RUN | Manuaalinen |
@@ -235,8 +234,6 @@ TC-19  test-dmg.sh                     23/23 ✅
 
 **Backlog:**
 - Live dark mode -päivitys (NSDistributedNotificationCenter + thread-safety)
-- `home_ssids` nollautuu uudelleenasennuksessa
-- API hot reload — automaattinen indikaatio ilman "Apply & Test" -klikkausta
 - Test notification / test alert -triggerit Advanced-tabiin
 
 **Evidence:** `/tmp/clairvoyant-test-evidence/`

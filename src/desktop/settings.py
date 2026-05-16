@@ -141,8 +141,9 @@ def _key_to_section(key: str) -> str:
         "log_level": "general", "start_minimized": "general",
         "close_to_menu_bar": "general", "launch_at_login": "general",
         "confirm_quit": "general", "auto_update": "advanced",
-        "error_reporting": "advanced", "pause_on_battery": "advanced",
-        "pause_when_away": "advanced", "home_ssids": "advanced",
+        "error_reporting": "advanced",
+        "pause_on_battery": "battery", "pause_when_away": "battery",
+        "home_ssids": "battery",
         "api_host": "web", "api_port": "web",
         "notifications_enabled": "notifications",
         "notify_on_family": "notifications", "notify_on_unknown": "notifications",
@@ -615,7 +616,9 @@ class SettingsWindow:
         api_sf = self._section(parent)
         api_host_var = tk.StringVar(value=self._cfg.get("api_host", "127.0.0.1"))
         api_port_var = tk.StringVar(value=str(self._cfg.get("api_port", 8765)))
-        self._status_var = tk.StringVar(value="")
+        self._api_status_var = tk.StringVar(value="")
+
+        self._api_debounce_id: str | None = None
 
         row1 = tk.Frame(api_sf, bg=c["window_bg"])
         row1.pack(fill="x", pady=(6, 0))
@@ -645,30 +648,43 @@ class SettingsWindow:
                             highlightthickness=1)
         port_ent.pack(side="right", ipadx=6, ipady=4)
 
-        # Status label
-        status_lbl = tk.Label(api_sf, textvariable=self._status_var,
+        # Status label — auto-updates via trace debounce
+        status_lbl = tk.Label(api_sf, textvariable=self._api_status_var,
                               font=("SF Pro Text", 11),
                               bg=c["window_bg"], fg=c["label_secondary"])
         status_lbl.pack(anchor="w", pady=(6, 0))
 
-        apply_btn = self._mac_button(api_sf, "Apply & Test",
-                                     lambda: self._apply_api_settings(api_host_var.get(), api_port_var.get()),
-                                     style="primary", font_size=12, padx=16, pady=5)
-        apply_btn.pack(anchor="w", pady=(8, 0))
+        # Hot reload: trace_add on both fields with 800ms debounce
+        api_host_var.trace_add("write",
+            lambda *a, hv=api_host_var, pv=api_port_var:
+                self._schedule_api_validation(hv.get(), pv.get()))
+        api_port_var.trace_add("write",
+            lambda *a, hv=api_host_var, pv=api_port_var:
+                self._schedule_api_validation(hv.get(), pv.get()))
 
-    def _apply_api_settings(self, host: str, port_str: str) -> None:
-        c = self._col
+        # Initial validation (without saving)
+        self._api_status_var.set("✓ Settings loaded from config")
+
+    def _schedule_api_validation(self, host: str, port_str: str) -> None:
+        """Debounce API validation — fires 800ms after last keystroke."""
+        if self._api_debounce_id is not None:
+            self._root.after_cancel(self._api_debounce_id)
+        self._api_debounce_id = self._root.after(
+            800, lambda: self._validate_api_settings(host, port_str))
+
+    def _validate_api_settings(self, host: str, port_str: str) -> None:
+        """Validate API host/port and save on success."""
         try:
             port = int(port_str)
         except ValueError:
-            self._status_var.set("❌ Port must be a number (1–65535)")
+            self._api_status_var.set("❌ Port must be a number (1–65535)")
             return
 
         if not host.strip():
-            self._status_var.set("❌ Host cannot be empty")
+            self._api_status_var.set("❌ Host cannot be empty")
             return
         if port < 1 or port > 65535:
-            self._status_var.set("❌ Port must be between 1–65535")
+            self._api_status_var.set("❌ Port must be between 1–65535")
             return
 
         # Try binding to check availability
@@ -679,13 +695,13 @@ class SettingsWindow:
             s.bind((host, port))
             s.close()
         except socket.error as e:
-            self._status_var.set(f"❌ {host}:{port} — {e.strerror}")
+            self._api_status_var.set(f"❌ {host}:{port} — {e.strerror}")
             return
 
         # Save via IPC
         self._set("api_host", host)
         self._set("api_port", port)
-        self._status_var.set(f"✅ {host}:{port} — saved & available")
+        self._api_status_var.set(f"✅ {host}:{port} — saved")
 
     # ── tab: Streams ────────────────────────────────────────────────────
 

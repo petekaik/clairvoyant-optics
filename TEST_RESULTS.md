@@ -1,14 +1,14 @@
 # Clairvoyant-Optics v5.1 — Test Results
 
 > Versio: 5.1.0 | DMG: `dist/Clairvoyant-Optics-5.1.0.dmg` | macOS 14+ (Apple Silicon)
-> Commit: `b4934fc` + staged settings.py (Behavior-tab removal, Launch at Login, API fields, render fix)
+> Viimeisin commit: katso `git log -1`
 
 ## Yhteenveto
 
 | Status | Määrä |
 |---|---|
-| ✅ PASS | 18 |
-| ❌ FAIL | 1 (home_ssids) |
+| ✅ PASS | 19 |
+| ❌ FAIL | 0 |
 | NO RUN | 2 (TC-12 daemon restart, TC-17 LaunchAgent) |
 | AUTOMATISOI ✅ | 8/8 |
 
@@ -26,8 +26,8 @@
 ### TC-05: Renderöinnin sujuvuus ✅ PASS — `update_idletasks()` + `update()` kaikissa render-poluissa
 ### TC-06: Kamerafeedien persistenssi ✅ PASS — section "cameras" + daemon-erikoiskäsittelijä
 ### TC-07: Launch at Login ✅ PASS — General-tabilla
-### TC-08: API Host/Port ✅ PASS — "Apply & Test" socket-bind-validoinnilla
-### TC-09: Kotiverkkoasetus ❌ FAIL — `home_ssids` nollautuu uudelleenasennuksessa (backlog)
+### TC-08: API Host/Port ✅ PASS — hot reload: `trace_add("write")` + 800ms debounce, automaattinen validointi ilman klikkausta
+### TC-09: Kotiverkkoasetus ✅ PASS — `home_ssids` persistenssi korjattu (section "battery" eikä "advanced")
 
 ### TC-10: AUTOMATISOI ✅ Daemon käynnistyy ✅ PASS
 ### TC-11: AUTOMATISOI ✅ IPC status (state: idle) ✅ PASS
@@ -59,7 +59,7 @@
 | Dark mode (käynnistyksessä) | ✅ OK |
 | Live dark mode | ❌ Backlog |
 | Behavior-tab poistettu | ✅ OK |
-| API Host/Port -kentät | ✅ OK |
+| API Host/Port hot reload | ✅ OK |
 | Launch at Login Generalilla | ✅ OK |
 
 ---
@@ -94,13 +94,21 @@ TC-19  test-dmg.sh                     23/23 ✅
 - ✅ Behavior-tab poistettu (Start Minimized, Close to Menu, Confirm Quit)
 - ✅ Launch at Login siirretty General-tabiin
 - ✅ API Host + Port -kentät lisätty General-tabiin
-- ✅ "Apply & Test" -nappi socket-bind-validoinnilla
+
+---
+
+## Kierros 6 — v5.1.0 Known Issues (kaikki valmiit)
+
+| ID | Bugi | Korjaus |
+|---|---|---|
+| K1 | `home_ssids` nollautuu | `_key_to_section` mappasi `"advanced"` → korjattu `"battery"` (vastaa daemonin `BatteryConfig.home_ssids`) |
+| K2 | API "Apply & Test" vaati klikkauksen | Korvattu `trace_add("write")` + 800ms debounce: validointi tapahtuu automaattisesti kirjoittamisen jälkeen |
+
+**IPC roundtrip verified:** `config.set(section="battery", key="home_ssids", value=["testikoti","mokki"])` → tallentui ja palautui oikein.
 
 ---
 
 ## Backlog
 
 - Live dark mode -päivitys (NSDistributedNotificationCenter + täysi rebuild)
-- `home_ssids` nollautuu uudelleenasennuksessa
-- API hot reload — automaattinen indikaatio ilman manuaalista klikkausta
 - Test notification / test alert -triggerit Advanced-tabiin
