@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.0.1"
+VERSION = "5.1.0"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -238,13 +238,39 @@ class SettingsWindow:
 
     def _detect_dark_mode(self) -> None:
         self._dark = False
+        # Strategy 1: defaults command (full path for bundle env)
         try:
             import subprocess
             r = subprocess.run(
-                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                ["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"],
                 capture_output=True, text=True, timeout=2,
             )
             self._dark = r.stdout.strip() == "Dark"
+            if self._dark:
+                return
+        except Exception:
+            pass
+
+        # Strategy 2: NSUserDefaults (reliable in any Cocoa context)
+        try:
+            from Foundation import NSUserDefaults
+            defaults = NSUserDefaults.standardUserDefaults()
+            style = defaults.stringForKey_("AppleInterfaceStyle")
+            if style:
+                self._dark = style == "Dark"
+                return
+        except Exception:
+            pass
+
+        # Strategy 3: PyObjC effectiveAppearance (last resort)
+        try:
+            from AppKit import NSApp
+            if NSApp is not None:
+                name = NSApp.effectiveAppearance().bestMatchFromAppearancesWithNames_([
+                    "NSAppearanceNameAqua",
+                    "NSAppearanceNameDarkAqua",
+                ])
+                self._dark = name == "NSAppearanceNameDarkAqua"
         except Exception:
             pass
 

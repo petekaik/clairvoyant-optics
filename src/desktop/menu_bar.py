@@ -24,7 +24,7 @@ except ImportError:
 try:
     from src.version import VERSION
 except ImportError:
-    VERSION = "5.0.1"
+    VERSION = "5.1.0"
 
 # ── Paths ──────────────────────────────────────────────────────────────
 
@@ -300,6 +300,17 @@ class ClairvoyantApp(rumps.App):
 
     def _on_settings(self, sender):
         """Open Settings.app (GUI for config)."""
+        # Try SIGUSR1 first if settings.py is already running (withdrawn)
+        settings_pid_file = CONFIG_DIR / "settings.pid"
+        if settings_pid_file.exists():
+            try:
+                pid = int(settings_pid_file.read_text().strip())
+                os.kill(pid, 0)  # check if alive
+                os.kill(pid, signal.SIGUSR1)
+                return
+            except Exception:
+                pass
+
         if IS_BUNDLED and SETTINGS_APP and SETTINGS_APP.exists():
             import subprocess
             subprocess.run(["open", "-a", str(SETTINGS_APP)], check=False)
@@ -336,6 +347,20 @@ class ClairvoyantApp(rumps.App):
     def _on_quit(self, sender):
         self._polling = False
         self._ipc.close()
+        # Kill daemon
+        global _web_server_pid
+        import subprocess
+        try:
+            subprocess.run(["pkill", "-f", "daemon.py"], timeout=3, check=False)
+        except Exception:
+            pass
+        # Kill web server
+        if _web_server_pid:
+            try:
+                subprocess.run(["kill", str(_web_server_pid)], timeout=3, check=False)
+            except Exception:
+                pass
+            _web_server_pid = None
         rumps.quit_application()
 
 

@@ -47,6 +47,8 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+UAT.md
+TEST_RESULTS.md
 
 # Hermes
 .hermes/

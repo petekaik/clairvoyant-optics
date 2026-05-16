@@ -27,7 +27,7 @@ from src.service.orchestrator import Orchestrator
 
 logger = logging.getLogger("clairvoyantd")
 
-VERSION = "5.0.0"
+VERSION = "5.1.0"
 
 
 def setup_logging(log_level: str = "INFO"):
