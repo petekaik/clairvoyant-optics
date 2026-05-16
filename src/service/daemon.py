@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.service.config_store import ConfigStore, CONFIG_DIR
+from src.service.config_store import ConfigStore, CONFIG_DIR, CameraConfig
 from src.service.ipc_server import IPCServer
 from src.service.orchestrator import Orchestrator
 
@@ -120,6 +120,18 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
         value = params.get("value")
         if not section or not key:
             raise IPCError(IPCError.INVALID_PARAMS, "section and key required")
+
+        # ── Special case: cameras is a list, not a dataclass attr ───
+        if section == "cameras" and key == "cameras":
+            if not isinstance(value, list):
+                raise IPCError(IPCError.INVALID_PARAMS, "cameras must be a list")
+            camera_objs = [CameraConfig(**c) for c in value if isinstance(c, dict)]
+            with config_store._lock:
+                config_store._config.cameras = camera_objs
+                config_store._persist()
+            logger.info(f"Cameras updated: {len(camera_objs)} cameras")
+            return {"ok": True}
+
         ok = config_store.set(section, key, value)
         if not ok:
             raise IPCError(IPCError.INVALID_PARAMS, f"Invalid section/key: {section}.{key}")

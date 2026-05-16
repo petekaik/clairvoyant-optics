@@ -106,11 +106,15 @@ def load_config() -> dict:
     result = _ipc_call("config.get")
     if result and isinstance(result, dict):
         cfg = dict(DEFAULTS)
-        for section in ("general", "behavior", "streams", "notifications", "advanced"):
+        for section in ("general", "behavior", "cameras", "notifications", "advanced"):
             if section in result and isinstance(result[section], dict):
                 # Flatten: notifications → notification_ prefix etc
                 for k, v in result[section].items():
                     cfg[k] = v
+        # Cameras come as list of dicts, not a dict
+        if "cameras" in result and isinstance(result["cameras"], list):
+            # Daemon returns list of CameraConfig objects (serialized as dicts)
+            cfg["cameras"] = list(result["cameras"])
         return cfg
 
     # Fallback: direct YAML
@@ -158,7 +162,7 @@ def _key_to_ipc_key(key: str) -> str:
 
 def save_cameras(cameras: list) -> None:
     """Save cameras list: try IPC, fallback YAML."""
-    result = _ipc_call("config.set", {"section": "streams", "key": "cameras", "value": cameras})
+    result = _ipc_call("config.set", {"section": "cameras", "key": "cameras", "value": cameras})
     if result:
         return
     cfg = _load_yaml(CONFIG_FILE)
@@ -226,6 +230,9 @@ class SettingsWindow:
         self._select_tab("general")
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         (CONFIG_DIR / "settings.pid").write_text(str(os.getpid()))
+        # Force immediate layout + paint for initial render
+        self._root.update_idletasks()
+        self._root.update()
 
     # ── window basics ───────────────────────────────────────────────
 
@@ -369,7 +376,15 @@ class SettingsWindow:
             self._dm_observer = None
 
     def _on_system_theme_changed(self) -> None:
-        """Rebuild UI when system dark mode toggles."""
+        """Rebuild UI when system dark mode toggles — schedule on Tk main thread.
+
+        NSDistributedNotificationCenter fires on a background thread.
+        Tk is NOT thread-safe — all widget mutations MUST go through after().
+        """
+        self._root.after(0, self._do_theme_changed)
+
+    def _do_theme_changed(self) -> None:
+        """Run on Tk main thread: re-detect theme, rebuild UI."""
         self._detect_dark_mode()
         self._col = _mac_colors(self._dark)
         self._apply_window_theme()
@@ -385,6 +400,10 @@ class SettingsWindow:
         self._build_content_area()
         active = getattr(self, "_active_tab", "general")
         self._select_tab(active)
+        # Force immediate layout + paint — otherwise widgets stay invisible
+        # until mouse moves from toolbar to content area on macOS Sequoia.
+        self._root.update_idletasks()
+        self._root.update()
 
     def _mac_button(self, parent: tk.Frame, text: str, command,
                     style: str = "primary", font_size: int = 13,
