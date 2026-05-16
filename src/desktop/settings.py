@@ -218,6 +218,7 @@ class SettingsWindow:
         self._detect_dark_mode()
         self._col = _mac_colors(self._dark)
         self._apply_window_theme()
+        self._setup_dark_mode_notification()
         self._setup_signals()
         self._setup_keyboard()
         self._build_toolbar()
@@ -342,6 +343,91 @@ class SettingsWindow:
     def _apply_window_theme(self) -> None:
         self._root.configure(bg=self._col["window_bg"])
 
+    def _setup_dark_mode_notification(self) -> None:
+        """Listen for system dark/light mode changes while Settings is open."""
+        try:
+            from Foundation import (
+                NSDistributedNotificationCenter,
+                NSObject,
+                objc,
+            )
+            class DarkModeObserver(NSObject):
+                def onThemeChanged_(self, notification):
+                    self._callback()
+
+            observer = DarkModeObserver.alloc().init()
+            observer._callback = self._on_system_theme_changed
+            center = NSDistributedNotificationCenter.defaultCenter()
+            center.addObserver_selector_name_object_(
+                observer,
+                "onThemeChanged:",
+                "AppleInterfaceThemeChangedNotification",
+                None,
+            )
+            self._dm_observer = observer  # keep alive
+        except Exception:
+            self._dm_observer = None
+
+    def _on_system_theme_changed(self) -> None:
+        """Rebuild UI when system dark mode toggles."""
+        self._detect_dark_mode()
+        self._col = _mac_colors(self._dark)
+        self._apply_window_theme()
+        self._rebuild_ui()
+
+    def _rebuild_ui(self) -> None:
+        """Rebuild toolbar + current tab with new colors."""
+        # Rebuild toolbar
+        self._toolbar.destroy()
+        self._build_toolbar()
+        # Rebuild content with same active tab
+        self._content_frame.destroy()
+        self._build_content_area()
+        active = getattr(self, "_active_tab", "general")
+        self._select_tab(active)
+
+    def _mac_button(self, parent: tk.Frame, text: str, command,
+                    style: str = "primary", font_size: int = 13,
+                    bold: bool = True, padx: int = 24, pady: int = 8) -> tk.Frame:
+        """Label-based button — tk.Button doesn't honour bg in macOS dark mode."""
+        c = self._col
+        if style == "primary":
+            bg_color = c["control_active"]
+            fg_color = "#ffffff"
+        elif style == "destructive":
+            bg_color = c["destructive"]
+            fg_color = "#ffffff"
+        else:
+            bg_color = c["control_bg"]
+            fg_color = c["label_primary"]
+
+        font_style = ("SF Pro Text", font_size, "bold") if bold else ("SF Pro Text", font_size)
+        btn_frame = tk.Frame(parent, bg=parent["bg"], cursor="hand2")
+        inner = tk.Frame(btn_frame, bg=bg_color,
+                         highlightbackground=c.get("entry_border", bg_color),
+                         highlightthickness=0)
+        inner.pack()
+        lbl = tk.Label(inner, text=text, font=font_style,
+                       fg=fg_color, bg=bg_color,
+                       padx=padx, pady=pady, cursor="hand2")
+        lbl.pack()
+
+        def _on_enter(e):
+            if style == "primary":
+                inner.configure(bg=c["control_active"])
+                lbl.configure(bg=c["control_active"])
+            elif style == "destructive":
+                inner.configure(bg=c["destructive"])
+                lbl.configure(bg=c["destructive"])
+
+        def _on_click(e):
+            command()
+
+        for w in (btn_frame, inner, lbl):
+            w.bind("<Button-1>", _on_click)
+            w.bind("<Enter>", _on_enter)
+        return btn_frame
+
     def _show(self) -> None:
         self._root.deiconify()
         self._root.lift()
@@ -405,14 +491,10 @@ class SettingsWindow:
 
         btn_row = tk.Frame(frm, bg=c["window_bg"])
         btn_row.pack(anchor="e")
-        tk.Button(btn_row, text="Cancel", font=("SF Pro Text", 12),
-                  bg=c["control_bg"], fg=c["label_primary"],
-                  relief="flat", padx=16, pady=4,
-                  command=top.destroy).pack(side="left", padx=(0, 8))
-        tk.Button(btn_row, text="Quit", font=("SF Pro Text", 12, "bold"),
-                  bg=c["destructive"], fg="#ffffff",
-                  relief="flat", padx=16, pady=4,
-                  command=lambda: [top.destroy(), self._quit()]).pack(side="left")
+        cancel_btn = self._mac_button(btn_row, "Cancel", top.destroy, style="default", font_size=12, padx=16, pady=4)
+        cancel_btn.pack(side="left", padx=(0, 8))
+        quit_btn = self._mac_button(btn_row, "Quit", lambda: [top.destroy(), self._quit()], style="destructive", font_size=12, padx=16, pady=4)
+        quit_btn.pack(side="left")
 
     # ── toolbar ─────────────────────────────────────────────────────────
 
@@ -532,14 +614,9 @@ class SettingsWindow:
             for i, cam in enumerate(cameras):
                 self._build_camera_card(list_frame, i, cam)
 
-        add_btn = tk.Button(
-            parent, text="+  Add Camera",
-            font=("SF Pro Text", 13, "bold"),
-            bg=c["control_active"], fg="#ffffff",
-            relief="flat", padx=24, pady=8,
-            activebackground=c["control_active"],
-            activeforeground="#ffffff",
-            command=self._add_camera_from_streams,
+        add_btn = self._mac_button(
+            parent, "+ Add Camera", self._add_camera_from_streams,
+            style="primary",
         )
         add_btn.pack(pady=(14, 20))
 
@@ -566,16 +643,11 @@ class SettingsWindow:
         name_ent.bind("<FocusOut>", lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()))
         name_ent.bind("<Return>", lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()))
 
-        rm = tk.Button(
-            hdr, text="\u2715", font=("SF Pro Text", 12, "bold"),
-            bg=c["control_bg"], fg=c["label_tertiary"],
-            activebackground=c["destructive"], activeforeground="#ffffff",
-            relief="flat", padx=6, pady=0, bd=0,
-            command=lambda i=idx: self._remove_camera(i),
+        rm_frame = self._mac_button(
+            hdr, "\u2715", lambda i=idx: self._remove_camera(i),
+            style="default", font_size=12, padx=6, pady=0,
         )
-        rm.pack(side="right")
-        rm.bind("<Enter>", lambda e, b=rm: b.configure(fg=c["destructive"]))
-        rm.bind("<Leave>", lambda e, b=rm: b.configure(fg=c["label_tertiary"]))
+        rm_frame.pack(side="right")
 
         sep = tk.Frame(card, bg=c["entry_border"], height=1)
         sep.pack(fill="x", padx=12)
