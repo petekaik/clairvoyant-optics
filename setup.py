@@ -47,6 +47,7 @@ OPTIONS = {
         "CFBundleShortVersionString": VERSION,
         "LSUIElement": True,  # No Dock icon — menu bar only
         "NSHighResolutionCapable": True,
+        "NSRequiresAquaSystemAppearance": False,  # honour system dark mode
     },
 }
 

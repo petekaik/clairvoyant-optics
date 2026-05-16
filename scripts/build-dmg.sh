@@ -56,6 +56,10 @@ echo "📁 Creating Settings.app wrapper..."
 SETTINGS_APP="$RESOURCES/Settings.app"
 rm -rf "$SETTINGS_APP"
 mkdir -p "$SETTINGS_APP/Contents/MacOS"
+mkdir -p "$SETTINGS_APP/Contents/Resources"
+
+# Copy icon for Settings.app dock icon
+cp -f "$PROJECT_ROOT/assets/icon.icns" "$SETTINGS_APP/Contents/Resources/icon.icns" 2>/dev/null || true
 
 cat > "$SETTINGS_APP/Contents/MacOS/Clairvoyant-Settings" << 'SHEOF'
 #!/bin/bash
@@ -80,6 +84,8 @@ cat > "$SETTINGS_APP/Contents/Info.plist" << PLEOF
     <string>Clairvoyant-Settings</string>
     <key>CFBundleVersion</key>
     <string>${VERSION}</string>
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
 </dict>
@@ -195,7 +201,7 @@ if kill -0 $APP_PID 2>/dev/null; then
     if kill -0 $APP_PID 2>/dev/null; then
         echo "   ✅ Running (15s — stable)"
         kill $APP_PID 2>/dev/null
-        wait $APP_PID 2>/dev/null
+        wait $APP_PID 2>/dev/null || true
         echo "   ✅ Clean shutdown"
     else
         echo "   ❌ CRASHED between 5s–15s"

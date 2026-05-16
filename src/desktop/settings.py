@@ -201,7 +201,7 @@ TABS = [
     ("general",       "General",        "\u2699"),      # ⚙ gear
     ("behavior",      "Behavior",       "\u2691"),      # ⚑ flag
     ("streams",       "Streams",        "\u25B6"),      # ▶ play
-    ("notifications", "Notifications",  "\U0001F514"),  # 🔔 bell
+    ("notifications", "Notifications",  "\u23F0"),      # ⏰ alarm clock (text symbol, not emoji)
     ("advanced",      "Advanced",       "\u2305"),      # ⌅ enter
 ]
 
@@ -501,6 +501,7 @@ class SettingsWindow:
             relief="flat", bd=0, highlightthickness=0,
         )
         name_ent.pack(side="left", fill="x", expand=True)
+        name_var.trace_add("write", lambda *a, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()))
         name_ent.bind("<FocusOut>", lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()))
         name_ent.bind("<Return>", lambda e, i=idx, v=name_var: self._update_camera_field(i, "name", v.get()))
 
