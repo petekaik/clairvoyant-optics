@@ -201,7 +201,7 @@ TABS = [
     ("general",       "General",        "\u2699"),      # ⚙ gear
     ("behavior",      "Behavior",       "\u2691"),      # ⚑ flag
     ("streams",       "Streams",        "\u25B6"),      # ▶ play
-    ("notifications", "Notifications",  "\u23F0"),      # ⏰ alarm clock (text symbol, not emoji)
+    ("notifications", "Notifications",  "\u269D"),      # ⚝ outlined white star (same block as ⚙⚑ — never emoji)
     ("advanced",      "Advanced",       "\u2305"),      # ⌅ enter
 ]
 
@@ -238,7 +238,38 @@ class SettingsWindow:
 
     def _detect_dark_mode(self) -> None:
         self._dark = False
-        # Strategy 1: defaults command (full path for bundle env)
+        debug: list[str] = []
+
+        # Strategy 0: Read GlobalPreferences plist directly (no subprocess, no imports)
+        try:
+            import plistlib
+            plist_path = os.path.expanduser("~/Library/Preferences/.GlobalPreferences.plist")
+            if os.path.exists(plist_path):
+                with open(plist_path, "rb") as f:
+                    prefs = plistlib.load(f)
+                self._dark = prefs.get("AppleInterfaceStyle") == "Dark"
+                debug.append(f"Strategy0(plistlib): dark={self._dark}")
+                if self._dark:
+                    self._force_tk_dark_mode()
+                    self._write_debug("dark_mode", debug)
+                    return
+        except Exception as e:
+            debug.append(f"Strategy0(plistlib): FAIL {e}")
+
+        # Strategy 1: Tk isdark (requires realized window)
+        try:
+            self._root.update_idletasks()
+            result = self._root.tk.call("::tk::unsupported::MacWindowStyle", "isdark", self._root)
+            self._dark = bool(int(result))
+            debug.append(f"Strategy1(Tk): dark={self._dark} result={result}")
+            if self._dark:
+                self._force_tk_dark_mode()
+                self._write_debug("dark_mode", debug)
+                return
+        except Exception as e:
+            debug.append(f"Strategy1(Tk): FAIL {e}")
+
+        # Strategy 2: defaults command (full path for bundle env)
         try:
             import subprocess
             r = subprocess.run(
@@ -246,23 +277,29 @@ class SettingsWindow:
                 capture_output=True, text=True, timeout=2,
             )
             self._dark = r.stdout.strip() == "Dark"
+            debug.append(f"Strategy2(defaults): dark={self._dark} stdout={r.stdout.strip()!r} rc={r.returncode}")
             if self._dark:
+                self._force_tk_dark_mode()
+                self._write_debug("dark_mode", debug)
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            debug.append(f"Strategy2(defaults): FAIL {e}")
 
-        # Strategy 2: NSUserDefaults (reliable in any Cocoa context)
+        # Strategy 3: NSUserDefaults
         try:
             from Foundation import NSUserDefaults
             defaults = NSUserDefaults.standardUserDefaults()
             style = defaults.stringForKey_("AppleInterfaceStyle")
+            debug.append(f"Strategy3(NSUserDefaults): style={style!r}")
             if style:
                 self._dark = style == "Dark"
+                self._force_tk_dark_mode()
+                self._write_debug("dark_mode", debug)
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            debug.append(f"Strategy3(NSUserDefaults): FAIL {e}")
 
-        # Strategy 3: PyObjC effectiveAppearance (last resort)
+        # Strategy 4: PyObjC effectiveAppearance (last resort)
         try:
             from AppKit import NSApp
             if NSApp is not None:
@@ -271,6 +308,34 @@ class SettingsWindow:
                     "NSAppearanceNameDarkAqua",
                 ])
                 self._dark = name == "NSAppearanceNameDarkAqua"
+                debug.append(f"Strategy4(NSApp): dark={self._dark} name={name!r}")
+                if self._dark:
+                    self._force_tk_dark_mode()
+        except Exception as e:
+            debug.append(f"Strategy4(NSApp): FAIL {e}")
+
+        self._write_debug("dark_mode", debug)
+
+    def _force_tk_dark_mode(self) -> None:
+        """Force Tk to use NSAppearanceNameDarkAqua — bg colors alone aren't enough."""
+        try:
+            self._root.tk.call(
+                "::tk::unsupported::MacWindowStyle", "appearance",
+                self._root, "dark", "dark",
+            )
+        except Exception:
+            pass
+
+    def _write_debug(self, key: str, lines: list[str]) -> None:
+        try:
+            log_path = CONFIG_DIR / "settings-debug.log"
+            import datetime
+            stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            with open(log_path, "a") as f:
+                f.write(f"[{stamp}] {key}:\n")
+                for line in lines:
+                    f.write(f"  {line}\n")
+                f.write("\n")
         except Exception:
             pass
 
@@ -304,12 +369,8 @@ class SettingsWindow:
         self._root.bind("<Command-w>", lambda e: self._on_close())
 
     def _on_close(self) -> None:
-        if self._cfg.get("close_to_menu_bar", True):
-            self._root.withdraw()
-        elif self._cfg.get("confirm_quit", False):
-            self._show_confirm_quit()
-        else:
-            self._quit()
+        # Always quit on window close — prevents ghost lingering in dock
+        self._quit()
 
     def _quit(self) -> None:
         (CONFIG_DIR / "settings.pid").unlink(missing_ok=True)
@@ -557,7 +618,7 @@ class SettingsWindow:
         cameras.append({"name": f"Camera {len(cameras) + 1}", "stream_url": "", "snap_url": ""})
         self._cfg["cameras"] = cameras
         save_cameras(cameras)
-        self._select_tab("streams")
+        self._refresh_streams_tab()
 
     def _remove_camera(self, idx: int) -> None:
         cameras = self._cfg.get("cameras", [])
@@ -565,7 +626,12 @@ class SettingsWindow:
             cameras.pop(idx)
         self._cfg["cameras"] = cameras
         save_cameras(cameras)
-        self._select_tab("streams")
+        self._refresh_streams_tab()
+
+    def _refresh_streams_tab(self) -> None:
+        """Rebuild streams tab only if it's currently visible."""
+        if getattr(self, "_active_tab", None) == "streams":
+            self._select_tab("streams")
 
     def _update_camera_field(self, idx: int, field: str, value: str) -> None:
         cameras = self._cfg.get("cameras", [])
