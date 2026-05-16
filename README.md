@@ -1,149 +1,152 @@
-# Clairvoyant-Optics v3
+# Clairvoyant-Optics v5.1
 
-**Your digital eye for macOS.** Monitors surveillance cameras in the background, recognizes family members from Photos.app face galleries, and sends native notifications — all running 100% locally on Apple Silicon.
+**Your digital eye for macOS.** Menu bar app that monitors surveillance cameras, recognizes family members, and sends native notifications — all running 100% locally on Apple Silicon.
 
 ```
-Surveillance Cameras ──→ YOLOv8n + InsightFace ──→ macOS Notifications
-      HLS/RTSP              M1 Neural Engine        Family = info
-                                                     Stranger = alert
+Cameras ──→ clairvoyantd (daemon) ──→ macOS Notifications
+                 │    IPC socket
+                 ├── menu_bar.py (rumps, menu bar icon)
+                 ├── settings.py (Apple HIG toolbar window)
+                 └── web_dashboard.py (http://127.0.0.1:8765)
 ```
 
-## What's New in v3
+## Architecture (v5 — service-oriented)
 
-- **🖥 macOS native** — No longer requires Home Assistant. Runs as a menubar app with native notifications.
-- **📦 DMG installer** — One-click install, no Python required. Ad-hoc signed for local trust.
-- **📸 Photos.app integration** — Imports face galleries directly from your macOS Photos library. Zero manual photo copying.
-- **🔔 Smart notifications** — Family members get a subtle notification. Strangers trigger an alert sound.
-- **🌐 Web dashboard** — Manage cameras, enrolled faces, and alerts at `http://localhost:8765`.
-- **🔌 Home Assistant optional** — MQTT support remains if you want HA integration.
+v5 splits the monolith into a three-layer IPC architecture:
 
-## Requirements
+| Layer | Process | Role |
+|---|---|---|
+| **Service** | `clairvoyantd` (daemon) | ML pipeline, camera I/O, config store, IPC server |
+| **Desktop** | `menu_bar.py` (rumps) | Menu bar icon, quick start/stop, IPC client |
+| **Desktop** | `settings.py` (tkinter) | Apple HIG settings window, launched via `Settings.app` wrapper |
+| **Desktop** | `web_dashboard.py` (stdlib) | HTTP dashboard at `http://127.0.0.1:8765`, IPC client |
 
-| Component | Details |
-|---|---|
-| **Hardware** | Mac with Apple Silicon (M1+) and 8+ GB RAM |
-| **OS** | macOS 14+ (Sonoma or newer) |
-| **Python** | 3.10+ (only if installing from source) |
-| **Cameras** | Any RTSP/HLS-capable camera. Tested with UniFi G3 + MediaMTX |
+Communication: Unix domain socket at `~/.clairvoyant-optics/ipc.sock`, newline-delimited JSON.
+
+The daemon auto-starts when the menu bar app launches. A LaunchAgent plist is provided for boot-time daemon startup.
 
 ## Quick Start
 
-### Option A: DMG Installer (recommended — no Python needed)
+### DMG Installer (recommended — no Python needed)
 
-1. Download `Clairvoyant-Optics-3.0.1.dmg` from [Releases](https://github.com/petekaik/clairvoyant-optics/releases)
+1. Download `Clairvoyant-Optics-5.1.0.dmg` from [Releases](https://github.com/petekaik/clairvoyant-optics/releases)
 2. Open the DMG and drag `Clairvoyant-Optics.app` to `/Applications`
-3. **First launch** — macOS Gatekeeper blocks unsigned apps. Bypass it **once**:
+3. **First launch** — macOS Gatekeeper blocks unsigned apps. Bypass it once:
    - **Right-click** the app in `/Applications` → **Open** → confirm the dialog
-   - Or go to **System Settings → Privacy & Security → Security** → click **"Open Anyway"** next to the blocked message about Clairvoyant-Optics
-4. Configure cameras in `~/.clairvoyant/.env` (see section below)
+   - Or: **System Settings → Privacy & Security** → click **"Open Anyway"**
+4. Click the eye icon in the menu bar → **Settings…** to configure cameras
 
 ### Why does macOS block it?
 
-Clairvoyant-Optics is an open-source hobby project. It is **ad-hoc signed** (not notarized by Apple), which triggers Gatekeeper's malware check. The app runs **100% locally** — no data leaves your machine — but Apple's default policy flags all non-notarized software. Trusting it once (right-click → Open) adds a permanent exception. For full transparency, [browse the source](https://github.com/petekaik/clairvoyant-optics).
+Clairvoyant-Optics is an open-source project. It is **ad-hoc signed** (not notarized by Apple). The app runs 100% locally — no data leaves your machine. Right-click → Open adds a permanent exception.
 
-### Option B: From Source (developers)
+### From Source (developers)
 
 ```bash
 git clone git@github.com:petekaik/clairvoyant-optics.git
 cd clairvoyant-optics
+python3 -m venv venv && source venv/bin/activate
 pip install -e .
 ```
 
 ## Configuration
 
-Copy the example config and edit:
+All settings live in `~/.clairvoyant-optics/config.yaml`. Use the **Settings…** window (⌘S from menu bar) for GUI configuration, or edit the YAML file directly.
 
-```bash
-cp .env.example .env
-# Edit .env with your camera stream URLs
+```yaml
+cameras:
+  - name: front_yard
+    stream: http://192.168.1.100:8888/front-yard/index.m3u8
+    snap: https://192.168.1.101/snap.jpeg
+
+detection:
+  person_confidence: 0.5
+  face_confidence: 0.7
+  frame_interval: 5
+
+web:
+  host: 127.0.0.1
+  port: 8765
+
+battery:
+  pause_on_battery: false
+  home_ssids: []
 ```
 
-### Camera Setup
-
-```ini
-# Cameras (CAM1, CAM2, …, CAM9)
-CAM1_STREAM=http://192.168.1.100:8888/front-yard/index.m3u8
-CAM1_SNAP=https://192.168.1.101/snap.jpeg
-CAM1_NAME=front_yard
-
-# MQTT (optional — Home Assistant)
-# Leave MQTT_BROKER empty to run without HA
-MQTT_BROKER=
-MQTT_PORT=1883
-MQTT_USERNAME=
-MQTT_PASSWORD=
-
-# Detection thresholds
-PERSON_DETECT_CONFIDENCE=0.5
-FACE_DETECT_CONFIDENCE=0.7
-FACE_RECOGNITION_THRESHOLD=0.6
-FRAME_INTERVAL=5
-
-# Notifications
-NOTIFICATION_SOUND_FAMILY=default   # macOS sound for family
-NOTIFICATION_SOUND_ALERT=alarm      # macOS sound for strangers
-
-# Web dashboard
-WEB_UI_PORT=8765
-WEB_UI_HOST=127.0.0.1
-```
-
-## Enrolling Faces
-
-### From Photos.app (automatic)
-
-```bash
-clairvoyant import-from-photos
-```
-
-This reads your Photos.app person galleries and generates face embeddings. No images are copied — only the mathematical face vectors are stored locally.
-
-If Photos.app images are iCloud-only, use manual enrollment instead:
-
-```bash
-mkdir -p photos/alice
-# Copy 5-10 photos of Alice to photos/alice/
-clairvoyant enroll "Alice" photos/alice/
-```
+Settings changes are applied instantly via IPC — no restart needed.
 
 ## Running
 
+Double-click `Clairvoyant-Optics.app` in `/Applications`. The eye icon appears in the menu bar.
+
+**Menu bar controls:**
+- Status indicator (● Running / ○ Idle / ✕ Disconnected)
+- ▶ Start / ⏸ Stop pipeline
+- **Settings…** (⌘S) — Apple HIG settings window
+- **Web Dashboard** — opens `http://127.0.0.1:8765` in browser
+- **Quit** (⌘Q) — clean shutdown
+
+### LaunchAgent (daemon at login)
+
 ```bash
-clairvoyant start
+cp assets/fi.kaikkonen.clairvoyantd.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist
 ```
 
-Launches the detection pipeline, menubar app, and web dashboard.
+The daemon starts when you log in. The menu bar app connects to it automatically.
 
-## Commands
+## Web Dashboard
 
-| Command | Description |
+Available at `http://127.0.0.1:8765`:
+
+| Endpoint | Description |
 |---|---|
-| `clairvoyant start` | Start pipeline + menubar + web dashboard |
-| `clairvoyant serve` | Web dashboard only |
-| `clairvoyant enroll <name> <dir>` | Enroll a person from photos |
-| `clairvoyant import-from-photos` | Import all faces from Photos.app |
-| `clairvoyant import-from-photos --person "Alice" "Bob"` | Import specific persons |
-| `clairvoyant list-faces` | List enrolled faces |
+| `GET /` | Dark-mode HTML dashboard with live status |
+| `GET /api/status` | JSON: pipeline state, camera health, battery |
+| `GET /api/cameras` | JSON: camera list with connection status |
 
-## Architecture
+The dashboard is a self-contained stdlib `http.server` — no FastAPI or external dependencies.
+
+## Project Structure
 
 ```
 src/
-├── cli.py              # CLI entry point (clairvoyant <command>)
-├── main.py             # Detection pipeline orchestrator
-├── config.py           # .env configuration loader
-├── streams/            # HLS/RTSP stream readers
-├── detection/          # YOLOv8n person detection
-├── recognition/        # InsightFace/ArcFace face recognition + SQLite DB
-├── integration/        # MQTT (optional, for Home Assistant)
-├── macos/              # macOS-specific components
-│   ├── photos_importer.py   # Photos.app face gallery import
-│   ├── notifier.py          # Native macOS notifications
-│   ├── menubar_app.py       # Menubar status + controls
-│   └── web_server.py        # FastAPI dashboard
-├── web/                # Web dashboard static files
-└── utils/              # Logging, helpers
+├── version.py              # Single source of truth: VERSION
+├── desktop/                # GUI layer (bundled into .app Resources)
+│   ├── menu_bar.py         # rumps menu bar app, IPC client
+│   ├── settings.py         # Apple HIG settings window (tkinter)
+│   ├── web_dashboard.py    # stdlib HTTP dashboard, IPC client
+│   └── ipc_client.py       # Shared Unix socket IPC client
+├── service/                # Daemon layer (clairvoyantd)
+│   ├── daemon.py           # Entry point, signal handlers
+│   ├── ipc_server.py       # Unix socket IPC server
+│   ├── orchestrator.py     # State machine (idle → starting → running → stopping)
+│   ├── config_store.py     # YAML config I/O + SIGHUP reload
+│   ├── camera_manager.py   # Camera stream management (stub)
+│   ├── ml_manager.py       # ONNX/CoreML inference (stub)
+│   ├── battery_manager.py  # Power state monitoring
+│   └── notification_bus.py # macOS notification dispatch (stub)
+├── detection/              # YOLOv8n person detection
+├── recognition/            # InsightFace face recognition
+├── streams/                # HLS/RTSP stream readers
+├── integration/            # MQTT (optional, Home Assistant)
+├── macos/                  # Legacy v4.2 components (archived)
+│   ├── app.py              # v4 monolith (not used in v5)
+│   ├── settings.py         # v4 HIG reference implementation
+│   └── web_server.py       # v4 FastAPI server (replaced)
+└── utils/                  # Logging, helpers
 ```
+
+## Build System
+
+| Script | Purpose |
+|---|---|
+| `python setup.py py2app` | Build `.app` bundle (Python 3.11.8, rumps, tkinter, yaml) |
+| `bash scripts/build-dmg.sh` | Full pipeline: py2app → asset copy → @rpath fix → codesign → DMG |
+| `bash scripts/test-dmg.sh` | End-to-end GUI validation: DMG integrity, install, stability, osascript menu bar, settings window, clean shutdown |
+| `bash scripts/ci-smoke-test.sh` | Headless CI validation: bundle structure, imports, 15s stability |
+
+Build produces `dist/Clairvoyant-Optics-5.1.0.dmg` (~15 MB).
 
 ## Performance (MacBook Air M1, 8 GB)
 
@@ -154,23 +157,19 @@ src/
 | ArcFace embedding | 224×224 | 10-20 ms | Rare |
 | **Total RAM** | | | **~500-800 MB** |
 
-With 2 cameras active, CPU load stays around 15-25%.
-
 ## Known Limitations
 
-- **Photos.app iCloud** — If "Optimize Mac Storage" is enabled, most photos are iCloud-only and cannot be used for face import. Use manual enrollment or download originals to your Mac.
-- **Self-signed camera certs** — Snap JPEG endpoints with self-signed certificates work but require `verify=False`.
-- **Gatekeeper warning** — macOS flags the app on first launch (see "Why does macOS block it?" above). Right-click → Open once to trust it permanently.
-- **Menubar app** requires `rumps` (macOS-only, included in requirements).
+- **ML models not bundled** — YOLO/InsightFace ONNX models are not included in the DMG (would bloat to 500+ MB). First-run detection downloads them or you place them in `models/`. Stubs currently return idle/no-camera state.
+- **Photos.app iCloud** — "Optimize Mac Storage" breaks face import. Use manual enrollment or download originals.
+- **Self-signed camera certs** — Snap JPEG endpoints need `verify=False`.
+- **Gatekeeper** — Right-click → Open once to trust permanently.
 
 ## Privacy & Security
 
-- **100% local inference** — All ML runs on the M1 Neural Engine. No cloud APIs, no images uploaded anywhere.
-- **Encrypted camera links** — Use RTSPS between cameras and MediaMTX for encrypted transport.
-- **Face embeddings stored locally** — SQLite database in `data/faces.db`, never transmitted.
-- **No secrets in the repo** — `.env`, `models/*.onnx`, and `photos/` are all gitignored.
-- **Suitable for households with children** — Designed from the ground up with privacy as a hard requirement.
+- **100% local inference** — All ML runs on the M1 Neural Engine. No cloud APIs.
+- **Face embeddings stored locally** — Never transmitted.
+- **No secrets in the repo** — `.env`, `models/*.onnx`, and `photos/` are gitignored.
 
 ## License
 
-This project is for personal, non-commercial use. ML models from InsightFace are available for non-commercial research purposes only per their [model zoo terms](https://github.com/deepinsight/insightface/blob/master/model_zoo/README.md).
+Personal, non-commercial use. ML models from InsightFace are available for non-commercial research purposes per their [model zoo terms](https://github.com/deepinsight/insightface/blob/master/model_zoo/README.md).
