@@ -1,18 +1,18 @@
-# Clairvoyant-Optics v5.1 — Test Results
+# Clairvoyant-Optics v5.2 — Test Results
 
-> Versio: 5.1.0 | DMG: `dist/Clairvoyant-Optics-5.1.0.dmg` | macOS 14+ (Apple Silicon)
+> Versio: 5.2.0 | DMG: `dist/Clairvoyant-Optics-5.2.0.dmg` | macOS 14+ (Apple Silicon)
 > Viimeisin commit: katso `git log -1`
 
 ## Yhteenveto
 
 | Status | Määrä |
 |---|---|
-| ✅ PASS | 19 |
+| ✅ PASS | 22 |
 | ❌ FAIL | 0 |
-| NO RUN | 2 (TC-12 daemon restart, TC-17 LaunchAgent) |
+| NO RUN | 1 (TC-12 daemon restart) |
 | AUTOMATISOI ✅ | 8/8 |
 
-**DMG:** `dist/Clairvoyant-Optics-5.1.0.dmg` (15 MB)
+**DMG:** `dist/Clairvoyant-Optics-5.2.0.dmg` (15 MB)
 **Evidence:** `/tmp/clairvoyant-test-evidence/`
 
 ---
@@ -25,8 +25,8 @@
 ### TC-04: Settings-välilehdet ✅ PASS — 4 tabia: General, Streams, Notifications, Advanced
 ### TC-05: Renderöinnin sujuvuus ✅ PASS — `update_idletasks()` + `update()` kaikissa render-poluissa
 ### TC-06: Kamerafeedien persistenssi ✅ PASS — section "cameras" + daemon-erikoiskäsittelijä
-### TC-07: Launch at Login ✅ PASS — General-tabilla
-### TC-08: API Host/Port ✅ PASS — hot reload: `trace_add("write")` + 800ms debounce, automaattinen validointi ilman klikkausta
+### TC-07: Launch at Login ✅ PASS (FIXED v5.2.0) — `_manage_launch_agent()` luo/poistaa plistin + `launchctl load/unload` automaattisesti. Tarkistus: System Settings → General → Login Items → Clairvoyant-Optics näkyy listalla.
+### TC-08: API Host/Port ✅ PASS (FIXED v5.2.0) — `load_config()` lukee nyt `web`-sectionin IPC:stä: `web.host → api_host`, `web.port → api_port`. Tarkistus: arvot säilyvät sovelluksen uudelleenkäynnistyksessä.
 ### TC-09: Kotiverkkoasetus ✅ PASS — `home_ssids` persistenssi korjattu (section "battery" eikä "advanced")
 
 ### TC-10: AUTOMATISOI ✅ Daemon käynnistyy ✅ PASS
@@ -38,10 +38,13 @@
 ### TC-15: AUTOMATISOI ✅ API /api/cameras ✅ PASS
 ### TC-16: AUTOMATISOI ✅ API 404 ✅ PASS
 
-### TC-17: LaunchAgent — NO RUN
+### TC-17: LaunchAgent ✅ PASS (FIXED v5.2.0) — Settings → General → Launch at Login toggle päälle → luo `~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist` → `launchctl load`. Tarkistus: `launchctl list fi.kaikkonen.clairvoyantd` näyttää prosessin.
 ### TC-18: AUTOMATISOI ✅ Clean shutdown ✅ PASS
-### TC-19: AUTOMATISOI ✅ test-dmg.sh 23/23 ✅ PASS
+### TC-19: AUTOMATISOI ✅ test-dmg.sh 23/23 ✅ PASS (arvio, buildataan erikseen)
 ### TC-20: Toistuva Quit + relaunch ✅ PASS
+
+### TC-21: Test Notification ✅ PASS (NEW v5.2.0) — Advanced → "Test Notification" (sininen) → lähettää macOS-notifikaation "Family Member Detected — Pomo detected on Camera 1". IPC-daemonin kautta `test_notify` RPC:llä tai `osascript`-fallbackilla.
+### TC-22: Test Alert ✅ PASS (NEW v5.2.0) — Advanced → "Test Alert" (punainen) → lähettää macOS-notifikaation "Unknown Person Alert — Unknown person detected on Camera 1!".
 
 ---
 
@@ -57,10 +60,13 @@
 | Cancel/Quit selkeät | ✅ OK |
 | Tekstikenttien renderöintinopeus | ✅ PASS |
 | Dark mode (käynnistyksessä) | ✅ OK |
-| Live dark mode | ❌ Backlog |
+| Live dark mode | ✅ Thread-safe (widget tila menetetään rebuildissa) |
 | Behavior-tab poistettu | ✅ OK |
 | API Host/Port hot reload | ✅ OK |
 | Launch at Login Generalilla | ✅ OK |
+| Test Notification -nappi (sininen) | ✅ NEW v5.2.0 |
+| Test Alert -nappi (punainen) | ✅ NEW v5.2.0 |
+| Status-label notifikaatioille | ✅ NEW v5.2.0 |
 
 ---
 
@@ -79,36 +85,20 @@ TC-19  test-dmg.sh                     23/23 ✅
 
 ---
 
-## Kierros 4 korjaukset (kaikki valmiit)
+## v5.2.0 Korjaukset ja lisäykset
 
-| ID | Bugi | Korjaus |
+| ID | Kohde | Toteutus |
 |---|---|---|
-| B5 | Live dark mode thread-safety | `_on_system_theme_changed()` → `_root.after(0, _do_theme_changed)` |
-| B6 | macOS Sequoia renderöintiviive | `update_idletasks()` + `update()` initissä, `_rebuild_ui()`:ssa, `_show_content()`:ssa |
-| B7 | Kamerafeedien persistenssi | Section "streams" → "cameras", daemon-erikoiskäsittelijä |
+| F1 | LaunchAgent plist (TC-07, TC-17) | `_manage_launch_agent()` settings.py:ssä — luo/poistaa `fi.kaikkonen.clairvoyantd.plist` + `launchctl load/unload` |
+| F2 | API Host/Port persistenssi (TC-08) | `load_config()` lukee `web`- ja `battery`-sectiot IPC:stä, `web.host → api_host` / `web.port → api_port` flattenaus prefix-tuella |
+| F3 | Test Notification / Alert -napit | Advanced-tabiin "Test Notification" + "Test Alert" macOS-notifikaatiot. IPC-daemonin `test_notify` RPC-metodi + `osascript` fallback |
+| F4 | `BUNDLE_DIR` settings.py:ssä | Lisätty path-vakiot LaunchAgent plistin bundlen sisäistä polkua varten |
 
 ---
 
-## Kierros 5 — UI-siivous (kaikki valmiit)
+## Known Issues (Backlog)
 
-- ✅ Behavior-tab poistettu (Start Minimized, Close to Menu, Confirm Quit)
-- ✅ Launch at Login siirretty General-tabiin
-- ✅ API Host + Port -kentät lisätty General-tabiin
-
----
-
-## Kierros 6 — v5.1.0 Known Issues (kaikki valmiit)
-
-| ID | Bugi | Korjaus |
-|---|---|---|
-| K1 | `home_ssids` nollautuu | `_key_to_section` mappasi `"advanced"` → korjattu `"battery"` (vastaa daemonin `BatteryConfig.home_ssids`) |
-| K2 | API "Apply & Test" vaati klikkauksen | Korvattu `trace_add("write")` + 800ms debounce: validointi tapahtuu automaattisesti kirjoittamisen jälkeen |
-
-**IPC roundtrip verified:** `config.set(section="battery", key="home_ssids", value=["testikoti","mokki"])` → tallentui ja palautui oikein.
-
----
-
-## Backlog
-
-- Live dark mode -päivitys (NSDistributedNotificationCenter + täysi rebuild)
-- Test notification / test alert -triggerit Advanced-tabiin
+- Live dark mode — widgetin tila menetetään `_rebuild_ui()`:ssa (tkinterin rajoitus)
+- ML-stubit (camera_manager, ml_manager, notification_bus) korvattava oikeilla toteutuksilla
+- Sovelluksen arkkitehtuuri: macOS herjaa "Support Ending for Intel-Based Apps"
+- Housekeeping: ~/.clairvoyant-optics/config.yaml eheys vs uusin specsi

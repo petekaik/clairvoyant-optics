@@ -1,6 +1,6 @@
-# Clairvoyant-Optics v5.1 — UAT (User Acceptance Testing)
+# Clairvoyant-Optics v5.2 — UAT (User Acceptance Testing)
 
-> Versio: 5.1.0 | DMG: `dist/Clairvoyant-Optics-5.1.0.dmg` | macOS 14+ (Apple Silicon)
+> Versio: 5.2.0 | DMG: `dist/Clairvoyant-Optics-5.2.0.dmg` | macOS 14+ (Apple Silicon)
 
 ---
 
@@ -9,7 +9,7 @@
 ### 1.1 Lataa ja asenna DMG:stä
 
 ```
-1. Lataa Clairvoyant-Optics-5.1.0.dmg Releases-sivulta
+1. Lataa Clairvoyant-Optics-5.2.0.dmg Releases-sivulta
 2. Kaksoisklikkaa DMG → aukeaa Finder-ikkuna
 3. Raahaa Clairvoyant-Optics.app → Applications-kansioon
 4. Sulje DMG-ikkuna, ejecttaa DMG-levy
@@ -55,7 +55,7 @@
 |---|---|
 | **Toimenpide** | Avaa Settings. Vaihda macOS System Settings → Appearance → Dark/Light |
 | **Odotettu tulos** | Settings-ikkuna noudattaa järjestelmäteemaa käynnistyksessä |
-| **Tunnettu rajoitus** | Live dark mode -päivitys (vaihto ilman restarttia) ei toimi — siirretty backlogille |
+| **Tunnettu rajoitus** | Live dark mode -päivitys tuhoaa widget-tilan rebuildissa; thread-safety korjattu `root.after(0)`-kuviolla |
 
 ### TC-04: Settings-välilehdet ✅ PASS
 
@@ -82,23 +82,22 @@
 | **Odotettu tulos** | Kamera näkyy edelleen Streams-tabilla |
 | **Korjaus** | Section "streams" → "cameras", daemon-erikoiskäsittelijä CameraConfig-listalle |
 
-### TC-07: Launch at Login ✅ PASS
+### TC-07: Launch at Login ✅ PASS (FIXED v5.2.0)
 
 | Kohde | Kuvaus |
 |---|---|
 | **Toimenpide** | General-tab → "Launch at Login" toggle päälle. Avaa System Settings → General → Login Items |
 | **Odotettu tulos** | Clairvoyant-Optics näkyy Login Items -listalla |
-| **Sijainti** | General-tab (siirretty poistetulta Behavior-tabilta) |
+| **Korjaus** | `_manage_launch_agent()` luo/poistaa `fi.kaikkonen.clairvoyantd.plist` + `launchctl load/unload` automaattisesti |
 
-### TC-08: API Host/Port — hot reload ✅ PASS
+### TC-08: API Host/Port — hot reload ✅ PASS (FIXED v5.2.0)
 
 | Kohde | Kuvaus |
 |---|---|
 | **Toimenpide** | General-tab → API Server -osio. Kirjoita uusi Host tai Port |
 | **Odotettu tulos onnistuessa** | ✅ `127.0.0.1:8765 — saved` (vihreä, ilmestyy 800ms viiveellä) |
 | **Odotettu tulos epäonnistuessa** | ❌ (punainen virheviesti: port varattu, virheellinen arvo jne.) |
-| **Tarkistus** | `grep api_port ~/.clairvoyant-optics/config.yaml` → arvo tallentunut automaattisesti |
-| **Korjaus** | `trace_add("write")` + 800ms debounce korvasi manuaalisen "Apply & Test" -napin |
+| **Korjaus** | `load_config()` lukee nyt `web`-sectionin IPC:stä: `web.host → api_host`, `web.port → api_port` |
 
 ### TC-09: Kotiverkkoasetus ✅ PASS
 
@@ -136,11 +135,12 @@ Tarkistus: `echo '{"method":"status","params":{},"id":1}' | nc -U ~/.clairvoyant
 
 ## 5. LaunchAgent
 
-### TC-17: Daemon käynnistyy loginin yhteydessä — NO RUN (manuaalinen)
+### TC-17: Daemon käynnistyy loginin yhteydessä — ✅ PASS (FIXED v5.2.0)
 
 ```
-cp assets/fi.kaikkonen.clairvoyantd.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist
+Settings → General → Launch at Login toggle päälle →
+  → luo ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist
+  → launchctl load
 ```
 
 ---
@@ -172,7 +172,27 @@ launchctl load ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist
 
 ---
 
-## 8. Visuaalinen validointi
+## 8. Uudet ominaisuudet (v5.2.0)
+
+### TC-21: Test Notification ✅ PASS
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | Advanced → Test Notifications → "Test Notification" (sininen) |
+| **Odotettu tulos** | macOS-notifikaatio "Family Member Detected — 👤 Pomo detected on Camera 1" |
+| **Tarkistus** | Status-label näyttää "✅ Notification sent" |
+
+### TC-22: Test Alert ✅ PASS
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | Advanced → Test Notifications → "Test Alert" (punainen) |
+| **Odotettu tulos** | macOS-notifikaatio "⚠ Unknown Person Alert — Unknown person detected on Camera 1!" |
+| **Tarkistus** | Status-label näyttää "✅ Notification sent" |
+
+---
+
+## 9. Visuaalinen validointi
 
 | Tarkistus | Status |
 |---|---|
@@ -183,8 +203,9 @@ launchctl load ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist
 | Cancel/Quit selkeät | ✅ OK |
 | Tekstikenttien renderöintinopeus | ✅ PASS |
 | Dark mode (käynnistyksessä) | ✅ OK |
-| Live dark mode | ❌ Backlog |
-| Behavior-tab poistettu | ✅ OK |
+| Live dark mode | ✅ Thread-safe (widget tila menetetään rebuildissa) |
+| Test Notification -nappi | ✅ OK |
+| Test Alert -nappi | ✅ OK |
 
 Vertaile Settings-ikkunaa macOS System Settingsiin:
 - Toolbar-välilehdet vasemmalla (ei ylhäällä tabbar)
@@ -205,8 +226,8 @@ Vertaile Settings-ikkunaa macOS System Settingsiin:
 | TC-04 | Settings-välilehdet (4 tabia) | ✅ PASS | test-dmg.sh Phase 6 |
 | TC-05 | Renderöinti sujuvuus | ✅ PASS | Manuaalinen |
 | TC-06 | Kamerafeedien persistenssi | ✅ PASS | Manuaalinen |
-| TC-07 | Launch at Login | ✅ PASS | Manuaalinen |
-| TC-08 | API Host/Port (hot reload) | ✅ PASS | Manuaalinen |
+| TC-07 | Launch at Login | ✅ PASS (FIXED v5.2.0) | Manuaalinen |
+| TC-08 | API Host/Port (hot reload) | ✅ PASS (FIXED v5.2.0) | Manuaalinen |
 | TC-09 | Kotiverkkoasetus | ✅ PASS | Manuaalinen |
 | TC-10 | Daemon käynnistyy | ✅ AUTOMATISOI | ci-smoke-test.sh |
 | TC-11 | IPC status | ✅ AUTOMATISOI | ci-smoke-test.sh |
@@ -215,10 +236,12 @@ Vertaile Settings-ikkunaa macOS System Settingsiin:
 | TC-14 | API /api/status | ✅ AUTOMATISOI | curl |
 | TC-15 | API /api/cameras | ✅ AUTOMATISOI | curl |
 | TC-16 | API 404 | ✅ AUTOMATISOI | curl |
-| TC-17 | LaunchAgent | NO RUN | Manuaalinen |
+| TC-17 | LaunchAgent | ✅ PASS (FIXED v5.2.0) | Manuaalinen |
 | TC-18 | Clean shutdown | ✅ AUTOMATISOI | test-dmg.sh Phase 7 |
 | TC-19 | test-dmg.sh 23/23 | ✅ AUTOMATISOI | test-dmg.sh |
 | TC-20 | Toistuva Quit + relaunch | ✅ PASS | Manuaalinen |
+| TC-21 | Test Notification | ✅ PASS | Manuaalinen |
+| TC-22 | Test Alert | ✅ PASS | Manuaalinen |
 
 **AUTOMATISOI-testit (8/8 PASS):**
 ```
@@ -231,9 +254,5 @@ TC-16  Web 404                         ✅
 TC-18  Clean shutdown                  ✅
 TC-19  test-dmg.sh                     23/23 ✅
 ```
-
-**Backlog:**
-- Live dark mode -päivitys (NSDistributedNotificationCenter + thread-safety)
-- Test notification / test alert -triggerit Advanced-tabiin
 
 **Evidence:** `/tmp/clairvoyant-test-evidence/`

@@ -27,7 +27,7 @@ from src.service.orchestrator import Orchestrator
 
 logger = logging.getLogger("clairvoyantd")
 
-VERSION = "5.1.0"
+VERSION = "5.2.0"
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -184,6 +184,25 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
     def ping(params: dict) -> dict:
         return {"ok": True, "version": VERSION}
 
+    def test_notify(params: dict) -> dict:
+        """Send a test notification through the notification bus."""
+        title = params.get("title", "Test")
+        subtitle = params.get("subtitle", "")
+        message = params.get("message", "Test notification")
+        try:
+            # Use macOS notifier directly via subprocess (no rumps dependency in daemon)
+            import subprocess
+            script = f'display notification "{message}" with title "{title}" subtitle "{subtitle}" sound name "default"'
+            subprocess.run(
+                ["osascript", "-e", script],
+                timeout=3, check=False, capture_output=True,
+            )
+            logger.info(f"Test notification sent: {title}")
+            return {"ok": True, "message": "Notification sent"}
+        except Exception as e:
+            logger.warning(f"Test notification failed: {e}")
+            return {"ok": False, "error": str(e)}
+
     return {
         "status": status,
         "start": start,
@@ -196,6 +215,7 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
         "history": history,
         "snapshot": snapshot,
         "ping": ping,
+        "test_notify": test_notify,
     }
 
 

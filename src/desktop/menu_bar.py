@@ -24,7 +24,7 @@ except ImportError:
 try:
     from src.version import VERSION
 except ImportError:
-    VERSION = "5.1.0"
+    VERSION = "5.2.0"
 
 # ── Paths ──────────────────────────────────────────────────────────────
 

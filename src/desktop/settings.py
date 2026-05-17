@@ -22,13 +22,19 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.1.0"
+VERSION = "5.2.0"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
 IS_BUNDLED = getattr(sys, "frozen", False) or (
     "Contents/Resources" in str(Path(__file__).resolve())
 )
+if IS_BUNDLED:
+    BUNDLE_DIR = Path(__file__).resolve().parent          # Contents/Resources/
+    BUNDLE_CONTENTS = BUNDLE_DIR.parent                    # Contents/
+else:
+    BUNDLE_DIR = None
+    BUNDLE_CONTENTS = None
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
@@ -106,11 +112,13 @@ def load_config() -> dict:
     result = _ipc_call("config.get")
     if result and isinstance(result, dict):
         cfg = dict(DEFAULTS)
-        for section in ("general", "behavior", "cameras", "notifications", "advanced"):
+        for section, prefix in (("general", ""), ("behavior", ""), ("cameras", ""),
+                                ("notifications", ""), ("advanced", ""),
+                                ("web", "api_"), ("battery", "")):
             if section in result and isinstance(result[section], dict):
-                # Flatten: notifications → notification_ prefix etc
+                # Flatten: web.host → api_host, notifications.enabled → notifications_enabled
                 for k, v in result[section].items():
-                    cfg[k] = v
+                    cfg[f"{prefix}{k}"] = v
         # Cameras come as list of dicts, not a dict
         if "cameras" in result and isinstance(result["cameras"], list):
             # Daemon returns list of CameraConfig objects (serialized as dicts)
@@ -867,6 +875,67 @@ class SettingsWindow:
                             self._cfg.get("home_ssids", ""),
                             lambda v: self._set("home_ssids", v))
 
+        # ── Test Notifications (v5.2.0) ─────────────────────────────
+        self._section_header(parent, "Test Notifications", "Verify alert delivery", pad_top=24)
+        test_sf = self._section(parent)
+        test_row = tk.Frame(test_sf, bg=c["window_bg"])
+        test_row.pack(fill="x", pady=(8, 0))
+
+        test_family_btn = self._mac_button(
+            test_row, "Test Notification",
+            self._test_family_notification, style="primary", padx=12, pady=4,
+        )
+        test_family_btn.pack(side="left", padx=(0, 12))
+
+        test_alert_btn = self._mac_button(
+            test_row, "Test Alert",
+            self._test_alert_notification, style="destructive", padx=12, pady=4,
+        )
+        test_alert_btn.pack(side="left")
+
+        self._test_status_var = tk.StringVar(value="")
+        tk.Label(test_sf, textvariable=self._test_status_var,
+                 font=("SF Pro Text", 11),
+                 bg=c["window_bg"], fg=c["label_secondary"]).pack(anchor="w", pady=(8, 0))
+
+    def _send_test_notification(self, title: str, subtitle: str, message: str) -> None:
+        """Send a macOS notification or notify via IPC daemon."""
+        # Try IPC: call daemon to send notification
+        result = _ipc_call("config.get", {"section": "notifications"})
+        if result:
+            # IPC daemon available — use test_notify IPC method if available
+            test_resp = _ipc_call("test_notify", {
+                "title": title, "subtitle": subtitle, "message": message,
+            })
+            if test_resp:
+                self._test_status_var.set("✅ Notification sent via daemon")
+                return
+
+        # Fallback: use rumps or subprocess osascript
+        try:
+            import subprocess
+            script = f'''
+            display notification "{message}" with title "{title}" subtitle "{subtitle}" sound name "default"
+            '''
+            subprocess.run(["osascript", "-e", script], timeout=3, check=False)
+            self._test_status_var.set("✅ Notification sent")
+        except Exception as e:
+            self._test_status_var.set(f"❌ Failed: {e}")
+
+    def _test_family_notification(self) -> None:
+        self._send_test_notification(
+            "Clairvoyant-Optics",
+            "Family Member Detected",
+            "👤 Pomo detected on Camera 1",
+        )
+
+    def _test_alert_notification(self) -> None:
+        self._send_test_notification(
+            "Clairvoyant-Optics",
+            "⚠ Unknown Person Alert",
+            "Unknown person detected on Camera 1!",
+        )
+
     # ── reusable UI primitives ──────────────────────────────────────────
 
     def _section_header(self, parent: tk.Frame, title: str, subtitle: str = "",
@@ -953,7 +1022,45 @@ class SettingsWindow:
     def _set(self, key: str, value) -> None:
         self._cfg[key] = value
         save_key(key, value)
+        if key == "launch_at_login":
+            self._manage_launch_agent(bool(value))
         self._notify_app_if_needed(key)
+
+    def _manage_launch_agent(self, enable: bool) -> None:
+        """Create or remove LaunchAgent plist for login auto-start."""
+        import plistlib
+        import subprocess
+
+        launch_agents_dir = Path.home() / "Library" / "LaunchAgents"
+        plist_path = launch_agents_dir / "fi.kaikkonen.clairvoyantd.plist"
+
+        if enable:
+            launch_agents_dir.mkdir(parents=True, exist_ok=True)
+            if IS_BUNDLED:
+                app_exec = str(BUNDLE_DIR.parent / "MacOS" / "Clairvoyant-Optics")  # type: ignore[union-attr]
+            else:
+                app_exec = sys.executable
+            plist_data = {
+                "Label": "fi.kaikkonen.clairvoyantd",
+                "ProgramArguments": [app_exec, "--daemon"],
+                "RunAtLoad": True,
+                "KeepAlive": False,
+            }
+            with open(plist_path, "wb") as f:
+                plistlib.dump(plist_data, f)
+            # Load it
+            subprocess.run(
+                ["launchctl", "load", str(plist_path)],
+                capture_output=True, timeout=3, check=False,
+            )
+        else:
+            # Unload and remove
+            if plist_path.exists():
+                subprocess.run(
+                    ["launchctl", "unload", str(plist_path)],
+                    capture_output=True, timeout=3, check=False,
+                )
+                plist_path.unlink(missing_ok=True)
 
     def _notify_app_if_needed(self, key: str) -> None:
         if key != "launch_at_login":

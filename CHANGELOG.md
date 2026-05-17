@@ -2,6 +2,22 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.2.0] — 2026-05-17
+
+### Added
+
+- **Test Notification/Alert buttons** — Advanced tab: "Test Notification" (blue) and "Test Alert" (red) buttons. Sends real macOS notifications via IPC daemon (`test_notify` RPC method) with fallback to `osascript`.
+- **LaunchAgent plist management** — Launch at Login toggle now automatically creates/removes `~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist` and loads/unloads it via `launchctl`. No manual terminal steps needed (fixes TC-07, TC-17).
+
+### Fixed
+
+- **API Host/Port persistence (TC-08)** — `load_config()` now reads `web` and `battery` sections from IPC daemon response. `web.host` → `api_host`, `web.port` → `api_port` flattening with section prefix support.
+- **settings.py `BUNDLE_DIR` / `BUNDLE_CONTENTS`** — Added path constants for bundle-aware LaunchAgent plist generation.
+
+### Architecture — v5.2 IPC method
+
+- **`test_notify` IPC method** — Daemon-side handler sends macOS notification via `osascript`, returns `{ok: true/false}`. Settings UI calls this when daemon is reachable.
+
 ## [5.1.0] — 2026-05-15
 
 ### Architecture (v5 — service-oriented)
@@ -29,7 +45,6 @@ All notable changes to Clairvoyant-Optics.
 - **Camera persistence (B7)** — section name mismatch (`"streams"` vs `"cameras"`), daemon special-case handler for `list[CameraConfig]` data
 - **Settings red close button** — `_on_close()` always calls `_quit()`, never `withdraw()`
 - **tk.Button contrast** in dark mode → replaced with `_mac_button()` throughout
-
 - **`home_ssids` section mapping** — `_key_to_section()` mapped `home_ssids` to `"advanced"` but daemon expects `"battery"` → fixed to `"battery"` (matches `BatteryConfig`), verified IPC roundtrip
 - **API hot reload** — "Apply & Test" button replaced with `trace_add("write")` + 800ms debounce, validation fires automatically on keystroke
 
