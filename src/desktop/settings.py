@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.4.1"
+VERSION = "5.5.0"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -670,28 +670,13 @@ class SettingsWindow:
         self._section_header(parent, "API Server", "Web dashboard & REST API", pad_top=24)
         api_sf = self._section(parent)
 
-        # Keep the existing host/port/enabled toggle fields
+        # Toggle
         self._mac_toggle(api_sf, "Enable API Server",
                          "Allow web dashboard and REST API access", "api_enabled")
 
+        # Host / Port fields
         api_host_var = tk.StringVar(value=self._cfg.get("api_host", "127.0.0.1"))
         api_port_var = tk.StringVar(value=str(self._cfg.get("api_port", 8765)))
-        
-        # Bind focus events to refresh web status when leaving these fields
-        def _on_host_focus_out(event=None):
-            self._set("api_host", api_host_var.get())
-            self._refresh_web_status()
-            
-        def _on_port_focus_out(event=None):
-            try:
-                port = int(api_port_var.get())
-                self._set("api_port", port)
-            except ValueError:
-                pass
-            self._refresh_web_status()
-
-        api_host_var.trace_add("write", lambda *args: setattr(self, '_host_changed', True))
-        api_port_var.trace_add("write", lambda *args: setattr(self, '_port_changed', True))
 
         row1 = tk.Frame(api_sf, bg=c["window_bg"])
         row1.pack(fill="x", pady=(6, 0))
@@ -706,11 +691,9 @@ class SettingsWindow:
                             highlightcolor=c["control_active"],
                             highlightthickness=1)
         host_ent.pack(side="right", ipadx=6, ipady=4)
-        host_ent.bind("<FocusOut>", _on_host_focus_out)
-        host_ent.bind("<Return>", _on_host_focus_out)
 
         row2 = tk.Frame(api_sf, bg=c["window_bg"])
-        row2.pack(fill="x", pady=(6, 0))
+        row2.pack(fill="x", pady=(4, 0))
         tk.Label(row2, text="Port", font=("SF Pro Text", 12),
                  fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
         port_ent = tk.Entry(row2, textvariable=api_port_var,
@@ -722,117 +705,118 @@ class SettingsWindow:
                             highlightcolor=c["control_active"],
                             highlightthickness=1)
         port_ent.pack(side="right", ipadx=6, ipady=4)
-        port_ent.bind("<FocusOut>", _on_port_focus_out)
-        port_ent.bind("<Return>", _on_port_focus_out)
 
-        # Add status indicator
-        self._web_status_var = tk.StringVar(value="")
-        self._web_status_label = tk.Label(api_sf, textvariable=self._web_status_var,
-                              font=("SF Pro Text", 11),
-                              bg=c["window_bg"], fg=c["label_secondary"])
-        self._web_status_label.pack(anchor="w", pady=(6, 0))
+        # --- Status row ---
+        status_row = tk.Frame(api_sf, bg=c["window_bg"])
+        status_row.pack(fill="x", pady=(10, 0))
 
-        # Add control buttons
-        button_frame = tk.Frame(api_sf, bg=c["window_bg"])
-        button_frame.pack(anchor="w", pady=(6, 0))
-
-        start_btn = self._mac_button(
-            button_frame, "Start", 
-            lambda: self._ipc_call("web_start"),
-            style="primary", padx=12, pady=4, font_size=11
+        self._web_status_label = tk.Label(
+            status_row, text="● Checking...",
+            font=("SF Pro Text", 11),
+            fg=c["label_tertiary"], bg=c["window_bg"], anchor="w",
         )
-        start_btn.pack(side="left", padx=(0, 8))
+        self._web_status_label.pack(side="left", padx=(0, 8))
 
-        stop_btn = self._mac_button(
-            button_frame, "Stop",
-            lambda: self._ipc_call("web_stop"),
-            style="default", padx=12, pady=4, font_size=11
-        )
-        stop_btn.pack(side="left", padx=(0, 8))
+        # --- Button row ---
+        btn_row = tk.Frame(api_sf, bg=c["window_bg"])
+        btn_row.pack(fill="x", pady=(6, 0))
 
-        restart_btn = self._mac_button(
-            button_frame, "Restart",
-            lambda: (_ipc_call("web_stop"), _ipc_call("web_start")),
-            style="default", padx=12, pady=4, font_size=11
-        )
-        restart_btn.pack(side="left")
+        self._web_btn_start = self._make_action_button(btn_row, "Start", c["success"], "web_start")
+        self._web_btn_stop = self._make_action_button(btn_row, "Stop", c["danger"], "web_stop")
+        self._web_btn_restart = self._make_action_button(btn_row, "Restart", c["warning"], "web_restart")
 
-        # Store references to buttons for enabling/disabling
-        self._web_start_btn = start_btn
-        self._web_stop_btn = stop_btn
-        self._web_restart_btn = restart_btn
+        # Bind field changes to re-check
+        def _on_field_save(name=""):
+            host = api_host_var.get().strip()
+            try:
+                port = int(api_port_var.get().strip())
+            except ValueError:
+                return
+            self._set("api_host", host)
+            self._set("api_port", port)
+            self._refresh_web_status()
 
-        # Initialize the web status
-        self._refresh_web_status()
-        
+        host_ent.bind("<FocusOut>", lambda e: _on_field_save())
+        host_ent.bind("<Return>", lambda e: _on_field_save())
+        port_ent.bind("<FocusOut>", lambda e: _on_field_save())
+        port_ent.bind("<Return>", lambda e: _on_field_save())
+
+        # Initial check
+        self._root.after(500, self._refresh_web_status)
+
+    def _make_action_button(self, parent: tk.Frame, text: str, accent: str, ipc_method: str) -> tk.Frame:
+        """Create Apple HIG -style button with hover/active feedback."""
+        c = self._col
+        btn = tk.Frame(parent, bg=c["btn_bg"], relief="flat", bd=0,
+                       highlightbackground=c["entry_border"],
+                       highlightthickness=1, padx=14, pady=6)
+        btn.pack(side="left", padx=(0, 8))
+
+        label = tk.Label(btn, text=text, font=("SF Pro Text", 11, "bold"),
+                         fg=accent, bg=c["btn_bg"])
+        label.pack()
+
+        def _on_enter(event):
+            btn.configure(bg=c["btn_hover"])
+            label.configure(bg=c["btn_hover"])
+
+        def _on_leave(event):
+            btn.configure(bg=c["btn_bg"])
+            label.configure(bg=c["btn_bg"])
+
+        def _on_click(event):
+            # Active flash: blue briefly
+            btn.configure(bg=c["btn_active"])
+            label.configure(bg=c["btn_active"])
+            label.configure(fg="#FFFFFF")
+            self._root.after(200, lambda: (
+                btn.configure(bg=c["btn_bg"]),
+                label.configure(bg=c["btn_bg"]),
+                label.configure(fg=accent),
+            ))
+            # Call IPC
+            self._web_call(ipc_method)
+
+        btn.bind("<Enter>", _on_enter)
+        btn.bind("<Leave>", _on_leave)
+        btn.bind("<Button-1>", _on_click)
+        label.bind("<Enter>", _on_enter)
+        label.bind("<Leave>", _on_leave)
+        label.bind("<Button-1>", _on_click)
+
+        return btn
+
+    def _web_call(self, method: str) -> None:
+        """Call a web control method via IPC, then refresh status."""
+        if method == "web_start":
+            _ipc_call("web_start")
+        elif method == "web_stop":
+            _ipc_call("web_stop")
+        elif method == "web_restart":
+            _ipc_call("web_restart")
+        # Wait a moment then check
+        self._root.after(500, self._refresh_web_status)
+
     def _refresh_web_status(self) -> None:
-        """Refresh the web server status from daemon."""
-        # Call web_status IPC method
-        result = _ipc_call("web_status")
-        if result and "running" in result:
-            running = result["running"]
-            if running:
-                self._web_status_var.set("● Running")
-                # Update color to green (success)
-                status_label = self._web_status_label  # We'll store reference to label
-                if status_label:
-                    status_label.configure(fg=self._col["success"])
+        """Check web server with HTTP heartbeat (not IPC — IPC from settings.py to daemon is unreliable cross-process)."""
+        host = self._cfg.get("api_host", "127.0.0.1")
+        port = self._cfg.get("api_port", 8765)
+        c = self._col
+        try:
+            import urllib.request
+            url = f"http://{host}:{port}/api/status"
+            req = urllib.request.Request(url, method="GET")
+            resp = urllib.request.urlopen(req, timeout=2)
+            if resp.getcode() == 200:
+                self._web_status_label.configure(
+                    text="● Running", fg=c["success"])
+                self._web_btn_start.configure(bg=c["btn_bg"])  # keep as bg reference, actual state managed
             else:
-                self._web_status_var.set("○ Stopped")
-                # Update color to gray (secondary)
-                status_label = self._web_status_label
-                if status_label:
-                    status_label.configure(fg=self._col["label_secondary"])
-        else:
-            self._web_status_var.set("● Unknown")
-            # Update color to gray (tertiary)
-            status_label = self._web_status_label
-            if status_label:
-                status_label.configure(fg=self._col["label_tertiary"])
-
-        # Update button states based on status
-        if result and "running" in result:
-            running = result["running"]
-            # Button states would be updated here if needed
-            
-    def _schedule_api_validation(self, host: str, port_str: str) -> None:
-        """Debounce API validation — fires 800ms after last keystroke."""
-        """Debounce API validation — fires 800ms after last keystroke."""
-        if self._api_debounce_id is not None:
-            self._root.after_cancel(self._api_debounce_id)
-        self._api_debounce_id = self._root.after(
-            800, lambda: self._validate_api_settings(host, port_str))
-
-    def _validate_api_settings(self, host: str, port_str: str) -> None:
-        """Validate API host/port and save on success."""
-        try:
-            port = int(port_str)
-        except ValueError:
-            self._api_status_var.set("❌ Port must be a number (1–65535)")
-            return
-
-        if not host.strip():
-            self._api_status_var.set("❌ Host cannot be empty")
-            return
-        if port < 1 or port > 65535:
-            self._api_status_var.set("❌ Port must be between 1–65535")
-            return
-
-        # Try binding to check availability
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.5)
-        try:
-            s.bind((host, port))
-            s.close()
-        except socket.error as e:
-            self._api_status_var.set(f"❌ {host}:{port} — {e.strerror}")
-            return
-
-        # Save via IPC
-        self._set("api_host", host)
-        self._set("api_port", port)
-        self._api_status_var.set(f"✅ {host}:{port} — saved")
+                self._web_status_label.configure(
+                    text="○ Stopped", fg=c["label_secondary"])
+        except Exception:
+            self._web_status_label.configure(
+                text="○ Stopped", fg=c["label_secondary"])
 
     # ── tab: Streams ────────────────────────────────────────────────────
 

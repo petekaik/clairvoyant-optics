@@ -28,7 +28,7 @@ from src.service.orchestrator import Orchestrator
 
 logger = logging.getLogger("clairvoyantd")
 
-VERSION = "5.4.1"
+VERSION = "5.5.0"
 
 
 _web_proc: subprocess.Popen | None = None

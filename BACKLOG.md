@@ -1,26 +1,22 @@
 # BACKLOG
 
-## v5.4.0 — Current (2026-05-19)
+## v5.5.0 — Current (2026-05-19)
 
-- ✅ **Web Dashboard hot reload** — `web_dashboard.py main()` lukee nyt `config.yaml`:n web.host, web.port, web.enabled. `menu_bar.py` monitoroi web-config-muutoksia poll-loopissa ja restartaa web serverin automaattisesti.
-- ✅ **ConfigStore.on_change** — Section-spesifinen callback `set()`-kutsulle (käytetään web-config muutosten monitorointiin).
-- ✅ **YAML string representer** — Stringit joissa kaksoispiste kvotoidaan automaattisesti (estää YAML 1.1 sexagesimaaliparsinnan DND-kellonajoilla).
-- ✅ **Home WiFi UX** — List-view Add/Delete + Enter binding (kuten kamerafeedeissä).
+- ✅ **API Server statusindikaattori** — HTTP heartbeat-tarkistus (`GET /api/status`). Näyttää "● Running" tai "○ Stopped". Päivittyy automaattisesti napin painalluksen ja host/port-muutoksen jälkeen.
+- ✅ **Start/Stop/Restart -nappien Apple HIG -palpute** — Hover highlight, active flash (blue flash 200ms), disabled state harmaana. Custom tk.Frame-pohjaiset napit.
+- ✅ **API Server -hallinta daemonissa** — `web_status`, `web_start`, `web_stop`, `web_restart` IPC handlerit daemonissa. Menu_bar ei enää hallitse web serveriä.
+- ✅ **Settings.app dockissa silmäikoni** — `CFBundleIconFile` + `icon.icns` kopio Settings.appin Resourcesiin.
+- ✅ **web_dashboard.py bundlessa** — Kopioidaan release.yml:ssä Resourcesiin (puuttui → DMG:stä ei käynnistynyt).
 
-## v5.5.0 — Tiekartta
+## vnext
 
-- **ML-stubien korvaaminen** — `camera_manager.py`, `ml_manager.py`, `notification_bus.py` stubit korvataan oikeilla toteutuksilla. YOLOv8n/InsightFace-mallien lazy-load DMG:n koon minimoimiseksi.
-- **Models download first-run** — Automaattinen ONNX-mallien lataus ensimmäisellä käynnistyksellä (YOLOv8n, InsightFace detection + recognition). Vaatii network access -oikeudet.
-- **Face enrollment UI** — GUI-pohjainen kasvojen rekisteröinti Settings-ikkunassa.
-- **Web dashboard -testipainikkeet** — Per-kamera "Test Family" ja "Test Alert" -painikkeet web dashboardiin (tuotu v2.1.0:sta).
-- **MQTT-integraatio** — Home Assistant -yhteensopivuus, `src/integration/` käyttöönotto.
-- **Telemetry** — Käyttöstatistiikka ja virheenseuranta (opt-in).
-- **macOS 15 (Sequoia) optimoinnit** — `WindowServer`-viiveet, `LSUIElement`-käyttäytyminen.
-
-## Housekeeping (ongoing)
-
-- ✅ ~~varmista ~/.clairvoyant-optics/config.yaml eheys ja että se vastaa viimeisimmän sovellusversion specsiä~~ (YAML persist + custom representer korjattu)
-- ✅ ~~varmista, että sovelluksen ensiasennus & käynnistys luo viimeisimmän specsin mukaisen konfiguraatiotiedoston "sane defaults" arvoilla~~ (DEFAULT_CONFIG_YAML ajantasalla)
+- **Data-säiliöt** — Tietokantapohjainen eventtihistoria (SQLite), detektioiden ja tunnistusten tallennus
+- **Face enrollment GUI** — Kasvojen rekisteröinti Settings-ikkunassa (kamera feed + capture + name)
+- **ML-stubit → oikeat mallit** — YOLOv8n/InsightFace lazy-load
+- **MQTT-integraatio** — Home Assistant -yhteensopivuus, `src/integration/` käyttöönotto
+- **Web dashboard UI-päivitys** — Real-time stream + detektio overlay, per-kamera testipainikkeet
+- **Telemetry** — Käyttöstatistiikka ja virheenseuranta (opt-in)
+- **macOS 15 (Sequoia) optimoinnit** — `WindowServer`-viiveet, `LSUIElement`-käyttäytyminen
 
 ## Valmiit (Done)
 

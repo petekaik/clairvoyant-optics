@@ -2,6 +2,19 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.5.0] — 2026-05-19
+
+### Fixed
+
+- **API Server status oli aina "Unknown"** — IPC settings ↔ daemon ei toimi luotettavasti eri prosessista. Korjattu: HTTP heartbeat (`GET /api/status`) oikeaan host:porttiin.
+- **Start/Stop/Restart -napeilla ei visuaalista palautetta** — Korvattu custom tk.Frame-pohjaisilla Apple HIG -tyylisillä napeilla: hover highlight, active blue flash (200ms), disabled state.
+- **BACKLOG.md päivitetty v5.5.0 → Current**
+
+### Changed
+
+- API Server -status nyt http-pohjainen (suora web-pyyntö, ei IPC:tä)
+- Settings UI: _build_api_server kokonaan uusiksi — napit, heartbeat, siivottu dead code (_validate_api_settings, _schedule_api_validation)
+
 ## [5.4.1] — 2026-05-19
 
 ### Fixed
