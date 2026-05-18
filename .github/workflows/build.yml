@@ -33,7 +33,7 @@ jobs:
       - name: Install build dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install pyinstaller pyyaml
+          pip install pyinstaller pyyaml rumps
 
       - name: Set version
         id: version
