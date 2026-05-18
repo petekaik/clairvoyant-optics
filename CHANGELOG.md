@@ -2,6 +2,12 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.3.0] — 2026-05-18
+
+### Fixed
+
+- **Auto-Update / Error Reporting config persistence (EXTRA)** — `auto_update` and `error_reporting` toggles in Advanced tab now correctly map to the `telemetry` section instead of `advanced`. Previously, toggling these created orphan keys at the YAML root level and the values were lost on app restart. Fix: `_key_to_section()` in `settings.py` maps `auto_update`/`error_reporting` → `"telemetry"` (matches `TelemetryConfig` dataclass in `config_store.py`), and `load_config()` now reads the `telemetry` section during IPC config retrieval.
+
 ## [5.2.0] — 2026-05-17
 
 ### Added

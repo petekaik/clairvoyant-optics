@@ -1,6 +1,6 @@
-# Clairvoyant-Optics v5.2 — Test Results
+# Clairvoyant-Optics v5.3 — Test Results
 
-> Versio: 5.2.0 | DMG: `dist/Clairvoyant-Optics-5.2.0.dmg` | macOS 14+ (Apple Silicon)
+> Versio: 5.3.0 | macOS 14+ (Apple Silicon)
 > Viimeisin commit: katso `git log -1`
 
 ## Yhteenveto
@@ -12,7 +12,6 @@
 | NO RUN | 1 (TC-12 daemon restart) |
 | AUTOMATISOI ✅ | 8/8 |
 
-**DMG:** `dist/Clairvoyant-Optics-5.2.0.dmg` (15 MB)
 **Evidence:** `/tmp/clairvoyant-test-evidence/`
 
 ---
@@ -25,8 +24,8 @@
 ### TC-04: Settings-välilehdet ✅ PASS — 4 tabia: General, Streams, Notifications, Advanced
 ### TC-05: Renderöinnin sujuvuus ✅ PASS — `update_idletasks()` + `update()` kaikissa render-poluissa
 ### TC-06: Kamerafeedien persistenssi ✅ PASS — section "cameras" + daemon-erikoiskäsittelijä
-### TC-07: Launch at Login ✅ PASS (FIXED v5.2.0) — `_manage_launch_agent()` luo/poistaa plistin + `launchctl load/unload` automaattisesti. Tarkistus: System Settings → General → Login Items → Clairvoyant-Optics näkyy listalla.
-### TC-08: API Host/Port ✅ PASS (FIXED v5.2.0) — `load_config()` lukee nyt `web`-sectionin IPC:stä: `web.host → api_host`, `web.port → api_port`. Tarkistus: arvot säilyvät sovelluksen uudelleenkäynnistyksessä.
+### TC-07: Launch at Login ✅ PASS (FIXED v5.2.0)
+### TC-08: API Host/Port ✅ PASS (FIXED v5.2.0)
 ### TC-09: Kotiverkkoasetus ✅ PASS — `home_ssids` persistenssi korjattu (section "battery" eikä "advanced")
 
 ### TC-10: AUTOMATISOI ✅ Daemon käynnistyy ✅ PASS
@@ -38,13 +37,21 @@
 ### TC-15: AUTOMATISOI ✅ API /api/cameras ✅ PASS
 ### TC-16: AUTOMATISOI ✅ API 404 ✅ PASS
 
-### TC-17: LaunchAgent ✅ PASS (FIXED v5.2.0) — Settings → General → Launch at Login toggle päälle → luo `~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist` → `launchctl load`. Tarkistus: `launchctl list fi.kaikkonen.clairvoyantd` näyttää prosessin.
+### TC-17: LaunchAgent ✅ PASS (FIXED v5.2.0)
 ### TC-18: AUTOMATISOI ✅ Clean shutdown ✅ PASS
 ### TC-19: AUTOMATISOI ✅ test-dmg.sh 23/23 ✅ PASS (arvio, buildataan erikseen)
 ### TC-20: Toistuva Quit + relaunch ✅ PASS
 
-### TC-21: Test Notification ✅ PASS (NEW v5.2.0) — Advanced → "Test Notification" (sininen) → lähettää macOS-notifikaation "Family Member Detected — Pomo detected on Camera 1". IPC-daemonin kautta `test_notify` RPC:llä tai `osascript`-fallbackilla.
-### TC-22: Test Alert ✅ PASS (NEW v5.2.0) — Advanced → "Test Alert" (punainen) → lähettää macOS-notifikaation "Unknown Person Alert — Unknown person detected on Camera 1!".
+### TC-21: Test Notification ✅ PASS (v5.2.0)
+### TC-22: Test Alert ✅ PASS (v5.2.0)
+
+### TC-23: Auto-Update / Error Reporting config persistence ✅ PASS (FIXED v5.3.0)
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | Advanced-tab → togglaa Auto-Update päälle/pois. Tarkista ~/.clairvoyant-optics/config.yaml |
+| **Odotettu tulos** | `auto_update: true/false` sijaitsee `telemetry:`-sectionin alla, EI YAML-juuressa |
+| **Korjaus** | `_key_to_section()` maps `auto_update`/`error_reporting` → `"telemetry"`. `load_config()` lukee `telemetry`-sektion IPC:stä. |
 
 ---
 
@@ -64,9 +71,10 @@
 | Behavior-tab poistettu | ✅ OK |
 | API Host/Port hot reload | ✅ OK |
 | Launch at Login Generalilla | ✅ OK |
-| Test Notification -nappi (sininen) | ✅ NEW v5.2.0 |
-| Test Alert -nappi (punainen) | ✅ NEW v5.2.0 |
-| Status-label notifikaatioille | ✅ NEW v5.2.0 |
+| Test Notification -nappi (sininen) | ✅ v5.2.0 |
+| Test Alert -nappi (punainen) | ✅ v5.2.0 |
+| Status-label notifikaatioille | ✅ v5.2.0 |
+| Auto-Update / Error Reporting telemetry-persistenssi | ✅ FIXED v5.3.0 |
 
 ---
 
@@ -85,14 +93,11 @@ TC-19  test-dmg.sh                     23/23 ✅
 
 ---
 
-## v5.2.0 Korjaukset ja lisäykset
+## v5.3.0 Korjaukset
 
 | ID | Kohde | Toteutus |
 |---|---|---|
-| F1 | LaunchAgent plist (TC-07, TC-17) | `_manage_launch_agent()` settings.py:ssä — luo/poistaa `fi.kaikkonen.clairvoyantd.plist` + `launchctl load/unload` |
-| F2 | API Host/Port persistenssi (TC-08) | `load_config()` lukee `web`- ja `battery`-sectiot IPC:stä, `web.host → api_host` / `web.port → api_port` flattenaus prefix-tuella |
-| F3 | Test Notification / Alert -napit | Advanced-tabiin "Test Notification" + "Test Alert" macOS-notifikaatiot. IPC-daemonin `test_notify` RPC-metodi + `osascript` fallback |
-| F4 | `BUNDLE_DIR` settings.py:ssä | Lisätty path-vakiot LaunchAgent plistin bundlen sisäistä polkua varten |
+| F5 | Auto-Update / Error Reporting config (TC-23, EXTRA) | `_key_to_section()` maps `auto_update`/`error_reporting` → `"telemetry"`. `load_config()` lukee `telemetry`-sektion IPC:stä. |
 
 ---
 

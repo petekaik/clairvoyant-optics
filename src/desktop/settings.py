@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.2.0"
+VERSION = "5.3.0"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -114,7 +114,8 @@ def load_config() -> dict:
         cfg = dict(DEFAULTS)
         for section, prefix in (("general", ""), ("behavior", ""), ("cameras", ""),
                                 ("notifications", ""), ("advanced", ""),
-                                ("web", "api_"), ("battery", "")):
+                                ("web", "api_"), ("battery", ""),
+                                ("telemetry", "")):
             if section in result and isinstance(result[section], dict):
                 # Flatten: web.host → api_host, notifications.enabled → notifications_enabled
                 for k, v in result[section].items():
@@ -148,8 +149,8 @@ def _key_to_section(key: str) -> str:
     mapping = {
         "log_level": "general", "start_minimized": "general",
         "close_to_menu_bar": "general", "launch_at_login": "general",
-        "confirm_quit": "general", "auto_update": "advanced",
-        "error_reporting": "advanced",
+        "confirm_quit": "general", "auto_update": "telemetry",
+        "error_reporting": "telemetry",
         "pause_on_battery": "battery", "pause_when_away": "battery",
         "home_ssids": "battery",
         "api_host": "web", "api_port": "web",

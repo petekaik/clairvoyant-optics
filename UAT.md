@@ -1,6 +1,6 @@
-# Clairvoyant-Optics v5.2 — UAT (User Acceptance Testing)
+# Clairvoyant-Optics v5.3 — UAT (User Acceptance Testing)
 
-> Versio: 5.2.0 | DMG: `dist/Clairvoyant-Optics-5.2.0.dmg` | macOS 14+ (Apple Silicon)
+> Versio: 5.3.0 | DMG: `dist/Clairvoyant-Optics-5.3.0.dmg` | macOS 14+ (Apple Silicon)
 
 ---
 
@@ -9,7 +9,7 @@
 ### 1.1 Lataa ja asenna DMG:stä
 
 ```
-1. Lataa Clairvoyant-Optics-5.2.0.dmg Releases-sivulta
+1. Lataa Clairvoyant-Optics-5.3.0.dmg Releases-sivulta
 2. Kaksoisklikkaa DMG → aukeaa Finder-ikkuna
 3. Raahaa Clairvoyant-Optics.app → Applications-kansioon
 4. Sulje DMG-ikkuna, ejecttaa DMG-levy
@@ -192,7 +192,19 @@ Settings → General → Launch at Login toggle päälle →
 
 ---
 
-## 9. Visuaalinen validointi
+## 9. Uudet ominaisuudet (v5.3.0)
+
+### TC-23: Auto-Update / Error Reporting config persistence ✅ PASS (FIXED v5.3.0)
+
+| Kohde | Kuvaus |
+|---|---|
+| **Toimenpide** | Advanced-tab → togglaa Auto-Update päälle → tarkista `~/.clairvoyant-optics/config.yaml` |
+| **Odotettu tulos** | `auto_update: true` sijaitsee `telemetry:`-sectionin alla, EI YAML-tiedoston juuressa |
+| **Korjaus** | `_key_to_section()` maps `auto_update`/`error_reporting` → `"telemetry"`. `load_config()` lukee `telemetry`-sektion IPC:stä. |
+
+---
+
+## 10. Visuaalinen validointi
 
 | Tarkistus | Status |
 |---|---|
@@ -206,6 +218,7 @@ Settings → General → Launch at Login toggle päälle →
 | Live dark mode | ✅ Thread-safe (widget tila menetetään rebuildissa) |
 | Test Notification -nappi | ✅ OK |
 | Test Alert -nappi | ✅ OK |
+| Auto-Update / Error Reporting telemetry-persistenssi | ✅ FIXED v5.3.0 |
 
 Vertaile Settings-ikkunaa macOS System Settingsiin:
 - Toolbar-välilehdet vasemmalla (ei ylhäällä tabbar)
@@ -242,6 +255,7 @@ Vertaile Settings-ikkunaa macOS System Settingsiin:
 | TC-20 | Toistuva Quit + relaunch | ✅ PASS | Manuaalinen |
 | TC-21 | Test Notification | ✅ PASS | Manuaalinen |
 | TC-22 | Test Alert | ✅ PASS | Manuaalinen |
+| TC-23 | Auto-Update / Error Reporting config | ✅ PASS (FIXED v5.3.0) | Manuaalinen |
 
 **AUTOMATISOI-testit (8/8 PASS):**
 ```
