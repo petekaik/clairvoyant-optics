@@ -275,7 +275,8 @@ def _mac_colors(dark: bool) -> dict:
             "entry_bg": "#1c1c1e", "entry_border": "#48484a",
             "toggle_track_off": "#48484a", "toggle_track_on": "#0a84ff",
             "toggle_knob": "#ffffff", "destructive": "#ff453a",
-            "success": "#30d158",
+            "success": "#30d158", "warning": "#ffd60a",
+            "btn_bg": "#2c2c2e", "btn_hover": "#3a3a3c", "btn_active": "#0a84ff",
         }
     return {
         "window_bg": "#f5f5f7", "toolbar_bg": "#e8e8ec",
@@ -286,7 +287,8 @@ def _mac_colors(dark: bool) -> dict:
         "entry_bg": "#ffffff", "entry_border": "#c6c6c8",
         "toggle_track_off": "#aeaeb2", "toggle_track_on": "#34c759",
         "toggle_knob": "#ffffff", "destructive": "#ff3b30",
-        "success": "#34c759",
+        "success": "#34c759", "warning": "#ff9500",
+        "btn_bg": "#ffffff", "btn_hover": "#e8e8ec", "btn_active": "#007aff",
     }
 
 # ── tab definitions ────────────────────────────────────────────────────
@@ -739,9 +741,9 @@ class SettingsWindow:
         btn_row = tk.Frame(api_sf, bg=c["window_bg"])
         btn_row.pack(fill="x", pady=(6, 0))
 
-        self._web_btn_start = self._make_action_button(btn_row, "Start", c["success"], "web_start")
-        self._web_btn_stop = self._make_action_button(btn_row, "Stop", c["danger"], "web_stop")
-        self._web_btn_restart = self._make_action_button(btn_row, "Restart", c["warning"], "web_restart")
+        self._web_btn_start = self._make_action_button(btn_row, "Start", "success", "web_start")
+        self._web_btn_stop = self._make_action_button(btn_row, "Stop", "destructive", "web_stop")
+        self._web_btn_restart = self._make_action_button(btn_row, "Restart", "warning", "web_restart")
 
         # Bind field changes to re-check
         def _on_field_save(name=""):
@@ -762,7 +764,7 @@ class SettingsWindow:
         # Initial check
         self._root.after(500, self._refresh_web_status)
 
-    def _make_action_button(self, parent: tk.Frame, text: str, accent: str, ipc_method: str) -> tk.Frame:
+    def _make_action_button(self, parent: tk.Frame, text: str, accent_key: str, ipc_method: str) -> tk.Frame:
         """Create Apple HIG -style button with hover/active feedback."""
         c = self._col
         btn = tk.Frame(parent, bg=c["btn_bg"], relief="flat", bd=0,
@@ -771,7 +773,7 @@ class SettingsWindow:
         btn.pack(side="left", padx=(0, 8))
 
         label = tk.Label(btn, text=text, font=("SF Pro Text", 11, "bold"),
-                         fg=accent, bg=c["btn_bg"])
+                         fg=c[accent_key], bg=c["btn_bg"])
         label.pack()
 
         def _on_enter(event):
@@ -790,7 +792,7 @@ class SettingsWindow:
             self._root.after(200, lambda: (
                 btn.configure(bg=c["btn_bg"]),
                 label.configure(bg=c["btn_bg"]),
-                label.configure(fg=accent),
+                label.configure(fg=c[accent_key]),
             ))
             # Call IPC
             self._web_call(ipc_method)
@@ -1465,8 +1467,7 @@ class SettingsWindow:
             return
             
         self._enroll_status_var.set("Capturing...")
-        self._capture_btn.configure(state="disabled")
-        self._capture_btn.config(text="Capturing...")
+        self._set_btn_text(self._capture_btn, "Capturing...")
         
         try:
             # In a real implementation this would capture from camera
@@ -1479,8 +1480,7 @@ class SettingsWindow:
         except Exception as e:
             self._enroll_status_var.set(f"Error: {str(e)}")
         finally:
-            self._capture_btn.configure(state="normal")
-            self._capture_btn.config(text="Capture from Camera")
+            self._set_btn_text(self._capture_btn, "Capture from Camera")
 
     # ── IPC helpers ─────────────────────────────────────────────────────
 
