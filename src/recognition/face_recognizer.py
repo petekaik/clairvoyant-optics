@@ -86,7 +86,7 @@ class FaceDatabase:
     def get_all_faces(self) -> list[dict]:
         """Hae kaikki rekisteröidyt kasvot."""
         rows = self._conn.execute(
-            "SELECT person_name, embedding, source_camera, sample_count FROM faces"
+            "SELECT person_name, embedding, source_camera, sample_count, last_seen FROM faces"
         ).fetchall()
 
         return [
@@ -95,9 +95,24 @@ class FaceDatabase:
                 "embedding": pickle.loads(row[1]),
                 "camera": row[2],
                 "samples": row[3],
+                "last_seen": row[4],
             }
             for row in rows
         ]
+
+    def delete_face(self, name: str) -> bool:
+        """Poista henkilö tietokannasta."""
+        try:
+            self._conn.execute(
+                "DELETE FROM faces WHERE person_name = ?",
+                (name,)
+            )
+            self._conn.commit()
+            logger.info(f"Deleted face: '{name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete face '{name}': {e}")
+            return False
 
     def log_detection(self, name: str, camera: str, confidence: float) -> None:
         """Kirjaa tunnistustapahtuma."""

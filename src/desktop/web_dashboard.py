@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clairvoyant-Optics v5.4.1 — Web Dashboard (stdlib http.server).
+"""Clairvoyant-Optics v5.6.0 — Web Dashboard (stdlib http.server).
 
 Lightweight HTTP server for the web dashboard. No external dependencies
 (no FastAPI/uviicorn). Communicates with clairvoyantd via IPC.

@@ -83,6 +83,34 @@ def find_web_dashboard_script() -> Path | None:
     return None
 
 
+def _enroll_face(orchestrator, params: dict) -> dict:
+    ml = orchestrator.ml_manager
+    name = params.get("name", "")
+    if not name:
+        return {"error": {"message": "name required"}}
+    # Use latest snapshot from each camera
+    import cv2
+    import tempfile
+    from pathlib import Path
+    cameras = params.get("cameras", orchestrator.camera_manager._readers.keys() if orchestrator.camera_manager else [])
+    image_paths = []
+    for cam in cameras:
+        snap = orchestrator.camera_manager.get_snapshot(cam) if orchestrator.camera_manager else None
+        if snap:
+            tmp = Path(tempfile.mktemp(suffix=".jpg"))
+            tmp.write_bytes(snap)
+            image_paths.append(tmp)
+    if not image_paths:
+        return {"error": {"message": "no camera snapshots available"}}
+    try:
+        count = ml.face_recognizer.enroll_person(image_paths, name) if ml and ml.face_recognizer else 0
+        for p in image_paths:
+            p.unlink(missing_ok=True)
+        return {"result": {"enrolled": True, "images_used": count, "name": name}}
+    except Exception as e:
+        return {"error": {"message": str(e)}}
+
+
 def setup_logging(log_level: str = "INFO"):
     """Configure logging to file + stderr."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -206,8 +234,40 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
         # Face DB is managed by MLManager, check if available
         if orchestrator.ml_manager and orchestrator.ml_manager.face_db:
             faces = orchestrator.ml_manager.face_db.get_all_faces()
-            return {"faces": [{"name": f["name"], "samples": f.get("samples", 1)} for f in faces]}
+            # Format for UI: name, camera, samples, last_seen
+            formatted_faces = []
+            for f in faces:
+                # Parse last_seen timestamp for display
+                last_seen = f.get("last_seen", "")
+                if last_seen:
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+                        last_seen = dt.strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        pass  # Keep as is if parsing fails
+                formatted_faces.append({
+                    "name": f["name"], 
+                    "camera": f.get("camera", ""),
+                    "samples": f.get("samples", 1),
+                    "last_seen": last_seen
+                })
+            return {"faces": formatted_faces}
         return {"faces": [], "error": "Face database not available"}
+
+    def faces_delete(params: dict) -> dict:
+        name = params.get("name")
+        if not name:
+            return {"error": {"message": "Missing face name"}}
+        
+        # Face DB is managed by MLManager, check if available
+        if orchestrator.ml_manager and orchestrator.ml_manager.face_db:
+            success = orchestrator.ml_manager.face_db.delete_face(name)
+            if success:
+                return {"result": {"deleted": name}}
+            else:
+                return {"error": {"message": f"Failed to delete face '{name}'"}}
+        return {"error": {"message": "Face database not available"}}
 
     def history(params: dict) -> dict:
         limit = params.get("limit", 50)
@@ -289,6 +349,18 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
         "web_start": lambda params: _web_start(config_store),
         "web_stop": lambda params: _web_stop(),
         "web_restart": web_restart,
+        "ml.status": lambda params: ({
+            "result": orchestrator.ml_manager.get_model_status()
+        } if orchestrator.ml_manager else {"result": {"progress": {}, "loaded": {}, "available": False}}),
+        "ml.download": lambda params: ({
+            "result": {"started": orchestrator.ml_manager.download_model(params.get("model"))}
+        } if orchestrator.ml_manager else {"error": {"message": "ML not initialized"}}),
+        "ml.download_all": lambda params: (
+            orchestrator.ml_manager.download_all_models() if orchestrator.ml_manager else None,
+            {"result": {"started": True}}
+        )[1],
+        "faces.enroll": lambda params: _enroll_face(orchestrator, params),
+        "faces.delete": faces_delete,
     }
 
 

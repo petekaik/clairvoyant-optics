@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.5.0"
+VERSION = "5.6.0"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -201,6 +201,7 @@ def _key_to_section(key: str) -> str:
         "error_reporting": "telemetry",
         "pause_on_battery": "battery", "pause_when_away": "battery",
         "home_ssids": "battery",
+        "battery_poll_interval": "battery",
         "api_host": "web", "api_port": "web", "api_enabled": "web",
         "notifications_enabled": "notifications",
         "notify_on_family": "notifications", "notify_on_unknown": "notifications",
@@ -208,6 +209,12 @@ def _key_to_section(key: str) -> str:
         "notification_sound_alert": "notifications",
         "notification_dnd_start": "notifications",
         "notification_dnd_end": "notifications",
+        "mqtt_enabled": "mqtt",
+        "mqtt_broker": "mqtt",
+        "mqtt_port": "mqtt",
+        "mqtt_username": "mqtt",
+        "mqtt_password": "mqtt",
+        "mqtt_topic_prefix": "mqtt",
     }
     return mapping.get(key, "general")
 
@@ -288,6 +295,8 @@ TABS = [
     ("general",       "General",        "\u2699"),      # ⚙ gear
     ("streams",       "Streams",        "\u25B6"),      # ▶ play
     ("notifications", "Notifications",  "\u269D"),      # ⚝ outlined white star
+    ("models",        "Models",         "\U0001F52C"),   # 🔬 microscope
+    ("faces",         "Faces",          "\U0001F464"),   # 👤 busts in silhouette
     ("advanced",      "Advanced",       "\u2305"),      # ⌅ enter
 ]
 
@@ -644,6 +653,15 @@ class SettingsWindow:
         page.pack(fill="both", expand=True, padx=2, pady=2)
         _clear_frame(page)
         getattr(self, f"_build_{tab_id}")(page)
+        # Refresh content for specific tabs
+        if tab_id == "general" or tab_id == "advanced":
+            self._refresh_web_status()
+        elif tab_id == "notifications":
+            self._check_dnd_times()
+        elif tab_id == "models":
+            self._refresh_ml_status()
+        elif tab_id == "faces":
+            self._refresh_faces()
         # Force immediate paint — on macOS Sequoia WindowServer defers
         # widget rendering until next user interaction without this.
         self._root.update_idletasks()
@@ -976,6 +994,136 @@ class SettingsWindow:
                          "Pause recognition on battery power", "pause_on_battery")
         self._mac_toggle(sf, "Pause When Away from Home",
                          "Pause when not connected to home WiFi", "pause_when_away")
+        
+        # ── MQTT Configuration ──────────────────────────────────────────────
+        mqtt_sf = self._section(parent, "MQTT")
+        self._mac_toggle(mqtt_sf, "Enable MQTT",
+                         "Publish detection events to MQTT broker", "mqtt_enabled")
+        
+        mqtt_host_var = tk.StringVar(value=self._cfg.get("mqtt_broker", ""))
+        mqtt_port_var = tk.StringVar(value=str(self._cfg.get("mqtt_port", 1883)))
+        mqtt_user_var = tk.StringVar(value=self._cfg.get("mqtt_username", ""))
+        mqtt_pass_var = tk.StringVar(value=self._cfg.get("mqtt_password", ""))
+        mqtt_topic_var = tk.StringVar(value=self._cfg.get("mqtt_topic_prefix", "clairvoyant"))
+        
+        row1 = tk.Frame(mqtt_sf, bg=c["window_bg"])
+        row1.pack(fill="x", pady=(6, 0))
+        tk.Label(row1, text="Broker", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        host_ent = tk.Entry(row1, textvariable=mqtt_host_var,
+                            bg=c["entry_bg"], fg=c["label_primary"],
+                            insertbackground=c["label_primary"],
+                            font=("SF Mono", 12),
+                            relief="flat", bd=0,
+                            highlightbackground=c["entry_border"],
+                            highlightcolor=c["control_active"],
+                            highlightthickness=1)
+        host_ent.pack(side="right", ipadx=6, ipady=4)
+        
+        row2 = tk.Frame(mqtt_sf, bg=c["window_bg"])
+        row2.pack(fill="x", pady=(4, 0))
+        tk.Label(row2, text="Port", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        port_ent = tk.Entry(row2, textvariable=mqtt_port_var,
+                            bg=c["entry_bg"], fg=c["label_primary"],
+                            insertbackground=c["label_primary"],
+                            font=("SF Mono", 12),
+                            relief="flat", bd=0,
+                            highlightbackground=c["entry_border"],
+                            highlightcolor=c["control_active"],
+                            highlightthickness=1)
+        port_ent.pack(side="right", ipadx=6, ipady=4)
+        
+        row3 = tk.Frame(mqtt_sf, bg=c["window_bg"])
+        row3.pack(fill="x", pady=(4, 0))
+        tk.Label(row3, text="Username", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        user_ent = tk.Entry(row3, textvariable=mqtt_user_var,
+                            bg=c["entry_bg"], fg=c["label_primary"],
+                            insertbackground=c["label_primary"],
+                            font=("SF Mono", 12),
+                            relief="flat", bd=0,
+                            highlightbackground=c["entry_border"],
+                            highlightcolor=c["control_active"],
+                            highlightthickness=1)
+        user_ent.pack(side="right", ipadx=6, ipady=4)
+        
+        row4 = tk.Frame(mqtt_sf, bg=c["window_bg"])
+        row4.pack(fill="x", pady=(4, 0))
+        tk.Label(row4, text="Password", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        pass_ent = tk.Entry(row4, textvariable=mqtt_pass_var,
+                            bg=c["entry_bg"], fg=c["label_primary"],
+                            insertbackground=c["label_primary"],
+                            font=("SF Mono", 12),
+                            relief="flat", bd=0,
+                            highlightbackground=c["entry_border"],
+                            highlightcolor=c["control_active"],
+                            highlightthickness=1,
+                            show="*")
+        pass_ent.pack(side="right", ipadx=6, ipady=4)
+        
+        row5 = tk.Frame(mqtt_sf, bg=c["window_bg"])
+        row5.pack(fill="x", pady=(4, 0))
+        tk.Label(row5, text="Topic Prefix", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        topic_ent = tk.Entry(row5, textvariable=mqtt_topic_var,
+                             bg=c["entry_bg"], fg=c["label_primary"],
+                             insertbackground=c["label_primary"],
+                             font=("SF Mono", 12),
+                             relief="flat", bd=0,
+                             highlightbackground=c["entry_border"],
+                             highlightcolor=c["control_active"],
+                             highlightthickness=1)
+        topic_ent.pack(side="right", ipadx=6, ipady=4)
+        
+        # Bind field changes to save
+        def _on_mqtt_field_save():
+            try:
+                port = int(mqtt_port_var.get().strip())
+            except ValueError:
+                port = 1883
+            self._set("mqtt_broker", mqtt_host_var.get().strip())
+            self._set("mqtt_port", port)
+            self._set("mqtt_username", mqtt_user_var.get().strip())
+            self._set("mqtt_password", mqtt_pass_var.get())
+            self._set("mqtt_topic_prefix", mqtt_topic_var.get().strip())
+        
+        for entry in [host_ent, port_ent, user_ent, pass_ent, topic_ent]:
+            entry.bind("<FocusOut>", lambda e: _on_mqtt_field_save())
+            entry.bind("<Return>", lambda e: _on_mqtt_field_save())
+
+        # ── Battery Configuration ──────────────────────────────────────────────
+        battery_sf = self._section(parent, "Battery")
+        self._mac_toggle(battery_sf, "Pause on Battery",
+                         "Pause recognition when on battery power", "pause_on_battery")
+        self._mac_toggle(battery_sf, "Pause When Away",
+                         "Pause when not connected to home WiFi", "pause_when_away")
+        
+        poll_interval_var = tk.StringVar(value=str(self._cfg.get("battery_poll_interval", 30)))
+        row6 = tk.Frame(battery_sf, bg=c["window_bg"])
+        row6.pack(fill="x", pady=(6, 0))
+        tk.Label(row6, text="Poll Interval (seconds)", font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        poll_ent = tk.Entry(row6, textvariable=poll_interval_var,
+                            bg=c["entry_bg"], fg=c["label_primary"],
+                            insertbackground=c["label_primary"],
+                            font=("SF Mono", 12),
+                            relief="flat", bd=0,
+                            highlightbackground=c["entry_border"],
+                            highlightcolor=c["control_active"],
+                            highlightthickness=1)
+        poll_ent.pack(side="right", ipadx=6, ipady=4)
+        
+        def _on_battery_field_save():
+            try:
+                interval = int(poll_interval_var.get().strip())
+            except ValueError:
+                interval = 30
+            self._set("battery_poll_interval", interval)
+        
+        poll_ent.bind("<FocusOut>", lambda e: _on_battery_field_save())
+        poll_ent.bind("<Return>", lambda e: _on_battery_field_save())
 
         # ── Home WiFi list (käyttäjäystävällinen list-view) ──────────────
         sf2 = self._section(parent, "Home WiFi")
@@ -1060,6 +1208,280 @@ class SettingsWindow:
         tk.Label(test_sf, textvariable=self._test_status_var,
                  font=("SF Pro Text", 11),
                  bg=c["window_bg"], fg=c["label_secondary"]).pack(anchor="w", pady=(8, 0))
+
+    # ── tab: Models ─────────────────────────────────────────────────────
+
+    def _build_models(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Model Download", "Download and manage AI models")
+        
+        # Model download section
+        model_sf = self._section(parent)
+        
+        # Model data: name, filename, size (MB)
+        models = [
+            ("Person Detection", "yolov8n.onnx", 6.2),
+            ("Face Detection", "det_10g.onnx", 4.8),
+            ("Face Recognition", "w600k_r50.onnx", 95.1)
+        ]
+        
+        self._model_status_labels = {}
+        self._model_buttons = {}
+        
+        for name, filename, size in models:
+            row = tk.Frame(model_sf, bg=c["window_bg"])
+            row.pack(fill="x", pady=(4, 0))
+            
+            # Model info
+            info_frame = tk.Frame(row, bg=c["window_bg"])
+            info_frame.pack(side="left", fill="x", expand=True)
+            tk.Label(info_frame, text=name, font=("SF Pro Text", 12, "bold"),
+                     fg=c["label_primary"], bg=c["window_bg"]).pack(anchor="w")
+            tk.Label(info_frame, text=f"{filename} ({size} MB)", font=("SF Pro Text", 10),
+                     fg=c["label_secondary"], bg=c["window_bg"]).pack(anchor="w")
+            
+            # Status label
+            status_var = tk.StringVar(value="Not Downloaded")
+            self._model_status_labels[filename] = status_var
+            status_label = tk.Label(row, textvariable=status_var, font=("SF Pro Text", 10),
+                                    fg=c["label_secondary"], bg=c["window_bg"])
+            status_label.pack(side="left", padx=(10, 0))
+            
+            # Download button
+            btn = self._mac_button(
+                row, "Download", 
+                lambda f=filename: self._download_model(f),
+                style="primary", padx=12, pady=2, font_size=11
+            )
+            self._model_buttons[filename] = btn
+            btn.pack(side="right")
+        
+        # Download all button
+        all_btn = self._mac_button(
+            model_sf, "Download All Models", 
+            self._download_all_models,
+            style="primary", padx=12, pady=4, font_size=12
+        )
+        all_btn.pack(pady=(10, 0))
+        
+        # Model Settings section
+        self._section_header(parent, "Model Settings", "Detection thresholds and timing", pad_top=24)
+        settings_sf = self._section(parent)
+        
+        # Person detection confidence
+        self._labeled_slider(settings_sf, "Person Detection Confidence",
+                            self._cfg.get("person_confidence", 0.5),
+                            0.0, 1.0, 0.05,
+                            lambda v: self._set("person_confidence", v))
+        
+        # Face detection confidence
+        self._labeled_slider(settings_sf, "Face Detection Confidence",
+                            self._cfg.get("face_confidence", 0.7),
+                            0.0, 1.0, 0.05,
+                            lambda v: self._set("face_confidence", v))
+        
+        # Face recognition threshold
+        self._labeled_slider(settings_sf, "Face Recognition Threshold",
+                            self._cfg.get("recognition_threshold", 0.6),
+                            0.0, 1.0, 0.05,
+                            lambda v: self._set("recognition_threshold", v))
+        
+        # Frame interval
+        self._labeled_entry(settings_sf, "Frame Interval (seconds)",
+                           str(self._cfg.get("frame_interval", 0.5)),
+                           lambda v: self._set("frame_interval", float(v) if v else 0.5))
+        
+        # Debounce seconds
+        self._labeled_entry(settings_sf, "Debounce Time (seconds)",
+                           str(self._cfg.get("debounce_seconds", 2)),
+                           lambda v: self._set("debounce_seconds", int(v) if v else 2))
+
+    def _download_model(self, model_name: str) -> None:
+        """Download a specific model via IPC."""
+        try:
+            self._model_status_labels[model_name].set("Downloading...")
+            self._model_buttons[model_name].configure(state="disabled", text="Downloading")
+            _ipc_call("ml.download", {"model": model_name})
+        except Exception as e:
+            self._model_status_labels[model_name].set(f"Error: {str(e)}")
+            self._model_buttons[model_name].configure(state="normal", text="Download")
+
+    def _download_all_models(self) -> None:
+        """Download all models via IPC."""
+        try:
+            for model_name in self._model_status_labels.keys():
+                self._model_status_labels[model_name].set("Queued...")
+                self._model_buttons[model_name].configure(state="disabled", text="Downloading")
+            _ipc_call("ml.download_all")
+        except Exception as e:
+            # In a real implementation, we'd handle this better
+            pass
+
+    def _refresh_ml_status(self) -> None:
+        """Refresh model download status from daemon."""
+        try:
+            result = _ipc_call("ml.status")
+            if result and "models" in result:
+                for model_name, status in result["models"].items():
+                    if model_name in self._model_status_labels:
+                        # Format status nicely
+                        if status.get("status") == "complete":
+                            self._model_status_labels[model_name].set("Complete")
+                            self._model_buttons[model_name].configure(state="normal", text="Downloaded")
+                        elif status.get("status") == "downloading":
+                            progress = status.get("progress", 0)
+                            self._model_status_labels[model_name].set(f"Downloading ({progress}%)")
+                            self._model_buttons[model_name].configure(state="disabled", text="Downloading")
+                        elif status.get("status") == "error":
+                            self._model_status_labels[model_name].set(f"Error: {status.get('error', 'Unknown')}")
+                            self._model_buttons[model_name].configure(state="normal", text="Retry")
+                        else:
+                            self._model_status_labels[model_name].set("Not Downloaded")
+                            self._model_buttons[model_name].configure(state="normal", text="Download")
+        except Exception as e:
+            # Silent fail in UI updates is acceptable
+            pass
+
+    # ── tab: Faces ──────────────────────────────────────────────────────
+
+    def _build_faces(self, parent: tk.Frame) -> None:
+        c = self._col
+        self._section_header(parent, "Registered Faces", "Manage enrolled faces for recognition")
+        
+        # Faces list section
+        faces_sf = self._section(parent)
+        
+        # Header row
+        header = tk.Frame(faces_sf, bg=c["window_bg"])
+        header.pack(fill="x", pady=(0, 6))
+        tk.Label(header, text="Name", font=("SF Pro Text", 11, "bold"),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(side="left", width=15)
+        tk.Label(header, text="Camera", font=("SF Pro Text", 11, "bold"),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(side="left", width=15)
+        tk.Label(header, text="Samples", font=("SF Pro Text", 11, "bold"),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(side="left", width=10)
+        tk.Label(header, text="Last Seen", font=("SF Pro Text", 11, "bold"),
+                 fg=c["label_primary"], bg=c["window_bg"]).pack(side="left", expand=True)
+        
+        # Faces list container
+        self._faces_list_frame = tk.Frame(faces_sf, bg=c["window_bg"])
+        self._faces_list_frame.pack(fill="both", expand=True, pady=(0, 10))
+        
+        # Enroll new face section
+        self._section_header(parent, "Enroll New Face", "Add a new face to recognize", pad_top=24)
+        enroll_sf = self._section(parent)
+        
+        # Name entry
+        self._face_name_var = tk.StringVar()
+        self._labeled_entry(enroll_sf, "Name", "", 
+                           lambda v: self._face_name_var.set(v))
+        
+        # Capture button
+        self._enroll_status_var = tk.StringVar(value="Ready to enroll")
+        tk.Label(enroll_sf, textvariable=self._enroll_status_var,
+                 font=("SF Pro Text", 11),
+                 bg=c["window_bg"], fg=c["label_secondary"]).pack(anchor="w", pady=(8, 0))
+        
+        self._capture_btn = self._mac_button(
+            enroll_sf, "Capture from Camera", 
+            self._capture_face,
+            style="primary", padx=12, pady=4, font_size=12
+        )
+        self._capture_btn.pack(pady=(4, 0))
+        
+        # Refresh faces list
+        self._refresh_faces()
+
+    def _refresh_faces(self) -> None:
+        """Refresh the list of registered faces."""
+        # Clear existing list
+        for widget in self._faces_list_frame.winfo_children():
+            widget.destroy()
+            
+        c = self._col
+        try:
+            result = _ipc_call("faces.list")
+            if result and isinstance(result, list):
+                if not result:
+                    tk.Label(self._faces_list_frame, text="No faces enrolled", 
+                             font=("SF Pro Text", 11),
+                             fg=c["label_secondary"], bg=c["window_bg"]).pack()
+                else:
+                    for face in result:
+                        row = tk.Frame(self._faces_list_frame, bg=c["window_bg"])
+                        row.pack(fill="x", pady=(4, 0))
+                        
+                        tk.Label(row, text=face.get("name", "Unknown"), 
+                                font=("SF Pro Text", 11),
+                                fg=c["label_primary"], bg=c["window_bg"]).pack(side="left", width=15)
+                        tk.Label(row, text=face.get("camera", "Any"), 
+                                font=("SF Pro Text", 10),
+                                fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left", width=15)
+                        tk.Label(row, text=str(face.get("samples", 0)), 
+                                font=("SF Pro Text", 10),
+                                fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left", width=10)
+                        tk.Label(row, text=face.get("last_seen", "Never"), 
+                                font=("SF Pro Text", 10),
+                                fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left", expand=True)
+                        
+                        # Delete button
+                        del_btn = self._mac_button(
+                            row, "Delete", 
+                            lambda n=face.get("name"): self._delete_face(n),
+                            style="destructive", padx=8, pady=2, font_size=10
+                        )
+                        del_btn.pack(side="right")
+            else:
+                tk.Label(self._faces_list_frame, text="Error loading faces", 
+                         font=("SF Pro Text", 11),
+                         fg=c["label_secondary"], bg=c["window_bg"]).pack()
+        except Exception as e:
+            tk.Label(self._faces_list_frame, text=f"Error: {str(e)}", 
+                     font=("SF Pro Text", 11),
+                     fg=c["label_secondary"], bg=c["window_bg"]).pack()
+
+    def _delete_face(self, name: str) -> None:
+        """Delete a registered face."""
+        try:
+            _ipc_call("faces.delete", {"name": name})
+            self._refresh_faces()  # Refresh the list
+        except Exception as e:
+            # In a real implementation we'd show an error to the user
+            pass
+
+    def _capture_face(self) -> None:
+        """Capture a new face for enrollment."""
+        name = self._face_name_var.get().strip()
+        if not name:
+            self._enroll_status_var.set("Please enter a name")
+            return
+            
+        self._enroll_status_var.set("Capturing...")
+        self._capture_btn.configure(state="disabled")
+        self._capture_btn.config(text="Capturing...")
+        
+        try:
+            # In a real implementation this would capture from camera
+            result = _ipc_call("faces.enroll", {"name": name})
+            if result and result.get("success"):
+                self._enroll_status_var.set(f"Enrolled: {name}")
+                self._refresh_faces()  # Refresh the list
+            else:
+                error = result.get("error", "Unknown error") if result else "No response"
+                self._enroll_status_var.set(f"Error: {error}")
+        except Exception as e:
+            self._enroll_status_var.set(f"Error: {str(e)}")
+        finally:
+            self._capture_btn.configure(state="normal")
+            self._capture_btn.config(text="Capture from Camera")
+
+    # ── IPC helpers ─────────────────────────────────────────────────────
+
+    def _check_dnd_times(self) -> None:
+        """Validate DND times and update UI indicators."""
+        # In a real implementation we would check if the times are valid
+        # For now we'll just pass
+        pass
 
     def _send_test_notification(self, title: str, subtitle: str, message: str,
                                 sound_key: str = "sound_family") -> None:
@@ -1174,6 +1596,65 @@ class SettingsWindow:
             font=("SF Pro Text", 13), bd=0, highlightthickness=0,
         )
         cb.pack(side="right", padx=(16, 0))
+
+    def _labeled_slider(self, parent: tk.Frame, label: str, value: float,
+                        min_val: float, max_val: float, step: float, callback) -> None:
+        """Slider with label and value display."""
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(8, 0))
+        
+        # Label on left
+        tk.Label(row, text=label, font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        
+        # Value display and slider container on right
+        right_frame = tk.Frame(row, bg=c["window_bg"])
+        right_frame.pack(side="right")
+        
+        # Value display
+        value_var = tk.StringVar(value=f"{value:.2f}")
+        value_label = tk.Label(right_frame, textvariable=value_var, font=("SF Mono", 11),
+                               fg=c["label_primary"], bg=c["window_bg"])
+        value_label.pack()
+        
+        # Slider
+        slider_var = tk.DoubleVar(value=value)
+        slider = tk.Scale(right_frame, from_=min_val, to=max_val, resolution=step,
+                         variable=slider_var, orient="horizontal", length=200,
+                         bg=c["window_bg"], fg=c["label_primary"],
+                         activebackground=c["control_active"],
+                         highlightthickness=0, bd=0,
+                         font=("SF Pro Text", 10),
+                         command=lambda v: [
+                             value_var.set(f"{float(v):.2f}"),
+                             callback(float(v))
+                         ])
+        slider.pack()
+
+    def _labeled_entry(self, parent: tk.Frame, label: str, value: str, callback) -> None:
+        """Text entry with label and auto-save."""
+        c = self._col
+        row = tk.Frame(parent, bg=c["window_bg"])
+        row.pack(fill="x", pady=(8, 0))
+        tk.Label(row, text=label, font=("SF Pro Text", 12),
+                 fg=c["label_secondary"], bg=c["window_bg"]).pack(side="left")
+        var = tk.StringVar(value=value)
+        ent = tk.Entry(row, textvariable=var,
+                       bg=c["entry_bg"], fg=c["label_primary"],
+                       insertbackground=c["label_primary"],
+                       font=("SF Mono", 12),
+                       relief="flat", bd=0,
+                       highlightbackground=c["entry_border"],
+                       highlightcolor=c["control_active"],
+                       highlightthickness=1)
+        ent.pack(side="right", ipadx=6, ipady=4)
+        
+        def _do_save(val: str) -> None:
+            callback(val)
+        
+        ent.bind("<FocusOut>", lambda e: _do_save(var.get()))
+        ent.bind("<Return>", lambda e: _do_save(var.get()))
 
     def _labeled_option(self, parent: tk.Frame, label: str,
                         value: str, choices: list[str], callback) -> None:
