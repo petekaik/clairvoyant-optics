@@ -1296,25 +1296,32 @@ class SettingsWindow:
                            str(self._cfg.get("debounce_seconds", 2)),
                            lambda v: self._set("debounce_seconds", int(v) if v else 2))
 
+    def _set_btn_text(self, btn: tk.Frame, text: str) -> None:
+        """Update _mac_button label text. btn is the outer Frame."""
+        for child in btn.winfo_children():
+            for grandchild in child.winfo_children():
+                if isinstance(grandchild, tk.Label):
+                    grandchild.configure(text=text)
+                    return
+
     def _download_model(self, model_name: str) -> None:
         """Download a specific model via IPC."""
         try:
             self._model_status_labels[model_name].set("Downloading...")
-            self._model_buttons[model_name].configure(state="disabled", text="Downloading")
+            self._set_btn_text(self._model_buttons[model_name], "Downloading")
             _ipc_call("ml.download", {"model": model_name})
         except Exception as e:
             self._model_status_labels[model_name].set(f"Error: {str(e)}")
-            self._model_buttons[model_name].configure(state="normal", text="Download")
+            self._set_btn_text(self._model_buttons[model_name], "Download")
 
     def _download_all_models(self) -> None:
         """Download all models via IPC."""
         try:
             for model_name in self._model_status_labels.keys():
                 self._model_status_labels[model_name].set("Queued...")
-                self._model_buttons[model_name].configure(state="disabled", text="Downloading")
+                self._set_btn_text(self._model_buttons[model_name], "Downloading")
             _ipc_call("ml.download_all")
         except Exception as e:
-            # In a real implementation, we'd handle this better
             pass
 
     def _refresh_ml_status(self) -> None:
@@ -1324,22 +1331,21 @@ class SettingsWindow:
             if result and "models" in result:
                 for model_name, status in result["models"].items():
                     if model_name in self._model_status_labels:
-                        # Format status nicely
-                        if status.get("status") == "complete":
+                        s = status.get("status")
+                        if s == "complete":
                             self._model_status_labels[model_name].set("Complete")
-                            self._model_buttons[model_name].configure(state="normal", text="Downloaded")
-                        elif status.get("status") == "downloading":
-                            progress = status.get("progress", 0)
-                            self._model_status_labels[model_name].set(f"Downloading ({progress}%)")
-                            self._model_buttons[model_name].configure(state="disabled", text="Downloading")
-                        elif status.get("status") == "error":
+                            self._set_btn_text(self._model_buttons[model_name], "Downloaded")
+                        elif s == "downloading":
+                            p = status.get("progress", 0)
+                            self._model_status_labels[model_name].set(f"Downloading ({p}%)")
+                            self._set_btn_text(self._model_buttons[model_name], "Downloading")
+                        elif s == "error":
                             self._model_status_labels[model_name].set(f"Error: {status.get('error', 'Unknown')}")
-                            self._model_buttons[model_name].configure(state="normal", text="Retry")
+                            self._set_btn_text(self._model_buttons[model_name], "Retry")
                         else:
                             self._model_status_labels[model_name].set("Not Downloaded")
-                            self._model_buttons[model_name].configure(state="normal", text="Download")
-        except Exception as e:
-            # Silent fail in UI updates is acceptable
+                            self._set_btn_text(self._model_buttons[model_name], "Download")
+        except Exception:
             pass
 
     # ── tab: Faces ──────────────────────────────────────────────────────
