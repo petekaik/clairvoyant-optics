@@ -13,6 +13,10 @@ All notable changes to Clairvoyant-Optics.
 
 - **Web Dashboard portti ignoorasi config.yaml:n** — `web_dashboard.py` hardkoodasi port 8765. Korjattu: lukee `web.host`/`web.port`/`web.enabled` config.yaml:stä.
 - **menu_bar.py ei restartannut web serveriä config-muutoksilla** — Korjattu: poll-loop monitoroi web configia, restartaa prosessin muutoksilla.
+- **Web Dashboard ei käynnistynyt (exit ennen serveriä)** — `web_dashboard.py` luki `enabled: false` configista → exit heti. Korjattu: enabled hoidetaan menu_bar-tasolla, web_dashboard aina käynnistyy.
+- **load_config() ei mäpännyt notification-kenttiä oikein** — Daemonin `dnd_start`/`dnd_end`/`sound_family`/`sound_alert` jäivät mappautumatta settings UI:n `notification_*`-avaimille. Korjattu: silmukan sisäinen reverse-map notification-sektiolle.
+- **DND-time entry puuttui validointi** — Nyt `_labeled_time_entry` hh:mm-regexillä (punainen reunus virheellä), auto-save FocusOut/Return kuten muissa syöttökentissä.
+- **_labeled_entry duplikaatti poistettu** — Korvattu `_labeled_time_entry`:llä, vanha `_labeled_entry`-metodi poistettu.
 
 ## [5.3.2] — 2026-05-19
 

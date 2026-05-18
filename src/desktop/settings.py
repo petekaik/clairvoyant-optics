@@ -112,15 +112,29 @@ def load_config() -> dict:
     result = _ipc_call("config.get")
     if result and isinstance(result, dict):
         cfg = dict(DEFAULTS)
+        # Reverse-map: daemon field name → UI flat key (per section)
+        _daemon_to_flat = {
+            "dnd_start": "notification_dnd_start",
+            "dnd_end": "notification_dnd_end",
+            "sound_family": "notification_sound_family",
+            "sound_alert": "notification_sound_alert",
+        }
         for section, prefix in (("general", ""), ("behavior", ""), ("cameras", ""),
                                 ("notifications", ""), ("advanced", ""),
                                 ("web", "api_"), ("battery", ""),
                                 ("telemetry", "")):
             if section in result and isinstance(result[section], dict):
                 for k, v in result[section].items():
-                    flat_key = f"{prefix}{k}"
-                    # Map daemon field names back to UI flat keys
-                    cfg[flat_key] = _daemon_to_settings_value(section, k, v)
+                    # Check for section-specific reverse-map
+                    if section == "notifications" and k in _daemon_to_flat:
+                        cfg[_daemon_to_flat[k]] = v
+                    elif k == "enabled" and section == "notifications":
+                        cfg["notifications_enabled"] = v
+                    elif k == "enabled" and section == "web":
+                        cfg["api_enabled"] = v
+                    else:
+                        flat_key = f"{prefix}{k}"
+                        cfg[flat_key] = _daemon_to_settings_value(section, k, v)
         # Cameras come as list of dicts, not a dict
         if "cameras" in result and isinstance(result["cameras"], list):
             cfg["cameras"] = list(result["cameras"])
@@ -882,12 +896,12 @@ class SettingsWindow:
                              sounds, lambda v: self._set("notification_sound_alert", v))
 
         sf3 = self._section(parent, "Do Not Disturb Schedule")
-        self._labeled_entry(sf3, "Start (HH:MM)",
-                            self._cfg.get("notification_dnd_start", ""),
-                            lambda v: self._set("notification_dnd_start", v))
-        self._labeled_entry(sf3, "End (HH:MM)",
-                            self._cfg.get("notification_dnd_end", ""),
-                            lambda v: self._set("notification_dnd_end", v))
+        self._labeled_time_entry(sf3, "Start (HH:MM)",
+                                 self._cfg.get("notification_dnd_start", ""),
+                                 "notification_dnd_start")
+        self._labeled_time_entry(sf3, "End (HH:MM)",
+                                 self._cfg.get("notification_dnd_end", ""),
+                                 "notification_dnd_end")
 
     # ── tab: Advanced ───────────────────────────────────────────────────
 
@@ -1120,7 +1134,9 @@ class SettingsWindow:
                                font=("SF Pro Text", 12))
         menu.pack(side="right")
 
-    def _labeled_entry(self, parent: tk.Frame, label: str, value: str, callback) -> None:
+    def _labeled_time_entry(self, parent: tk.Frame, label: str, value: str, key: str) -> None:
+        """Time entry (HH:MM) with auto-save + format validation + flash on error."""
+        import re
         c = self._col
         row = tk.Frame(parent, bg=c["window_bg"])
         row.pack(fill="x", pady=(8, 0))
@@ -1136,8 +1152,17 @@ class SettingsWindow:
                        highlightcolor=c["control_active"],
                        highlightthickness=1)
         ent.pack(side="right", ipadx=6, ipady=4)
-        ent.bind("<FocusOut>", lambda e, cb=callback, v=var: cb(v.get()))
-        ent.bind("<Return>", lambda e, cb=callback, v=var: cb(v.get()))
+
+        def _do_save(raw: str) -> None:
+            raw = raw.strip()
+            if raw and not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", raw):
+                # Flash red border briefly
+                ent.config(highlightbackground="#ff4444")
+                self._root.after(2000, lambda: ent.config(highlightbackground=c["entry_border"]))
+                return
+            self._set(key, raw)
+        ent.bind("<FocusOut>", lambda e, cb=_do_save, v=var: cb(v.get()))
+        ent.bind("<Return>", lambda e, cb=_do_save, v=var: cb(v.get()))
 
     # ── config mutation ─────────────────────────────────────────────────
 

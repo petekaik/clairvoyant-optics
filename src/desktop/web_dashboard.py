@@ -335,10 +335,7 @@ def main():
             web_cfg = cfg.get("web", {})
             host = web_cfg.get("host", host)
             port = web_cfg.get("port", port)
-            enabled = web_cfg.get("enabled", True)
-            if not enabled:
-                print("Web dashboard disabled in config — exiting", file=sys.stderr)
-                sys.exit(0)
+            # enabled is handled by menu_bar spawning logic — always start
         except Exception:
             pass
 
