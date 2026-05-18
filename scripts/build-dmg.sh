@@ -138,17 +138,16 @@ echo "✅ Signed"
 # ── Package DMG ──────────────────────────────────────────────
 
 DMG_BUILD="/tmp/clairvoyant-dmg-build"
-DMG_RW="/tmp/clairvoyant-rw.dmg"
+DMG_RW="/tmp/clairvoyant-rw-${VERSION}.dmg"
 FINAL_DMG="dist/Clairvoyant-Optics-${VERSION}.dmg"
 
 echo "📀 Creating DMG layout (drag-to-install)..."
-rm -rf "$DMG_BUILD"
+rm -rf "$DMG_BUILD" "$DMG_RW" "$FINAL_DMG"
 mkdir -p "$DMG_BUILD"
 cp -R "$APP" "$DMG_BUILD/"
 ln -sf /Applications "$DMG_BUILD/Applications"
 
 echo "💾 Creating read-write DMG..."
-rm -f "$DMG_RW" "$FINAL_DMG"
 hdiutil create \
     -size 80m \
     -volname "Clairvoyant-Optics" \
