@@ -33,10 +33,7 @@ class TestKeyMapping(unittest.TestCase):
     def test_key_to_section_general(self):
         cases = {
             "log_level": "general",
-            "start_minimized": "general",
-            "close_to_menu_bar": "general",
             "launch_at_login": "general",
-            "confirm_quit": "general",
         }
         for key, expected in cases.items():
             self.assertEqual(self.s._key_to_section(key), expected, f"{key} → {expected}")
@@ -306,8 +303,8 @@ class TestDefaultsConsistency(unittest.TestCase):
         section_func = self.s._key_to_section
         # We can introspect by looking at a few known keys — better approach:
         mapping_keys = {
-            "log_level", "start_minimized", "close_to_menu_bar",
-            "launch_at_login", "confirm_quit",
+            "log_level",
+            "launch_at_login",
             "auto_update", "error_reporting",
             "pause_on_battery", "pause_when_away", "home_ssids",
             "api_host", "api_port", "api_enabled",

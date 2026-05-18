@@ -49,10 +49,8 @@ APP_BUNDLE_ID = "fi.kaikkonen.clairvoyant-optics"
 LAUNCH_AGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{APP_BUNDLE_ID}.plist"
 
 DEFAULTS = {
-    "start_minimized": True,
+    "log_level": "INFO",
     "launch_at_login": False,
-    "close_to_menu_bar": True,
-    "confirm_quit": False,
     "auto_update": False,
     "error_reporting": False,
     "pause_on_battery": False,

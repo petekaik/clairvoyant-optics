@@ -40,10 +40,7 @@ CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
 DEFAULTS: dict = {
     "log_level": "INFO",
-    "start_minimized": True,
-    "close_to_menu_bar": True,
     "launch_at_login": False,
-    "confirm_quit": False,
     "auto_update": False,
     "error_reporting": False,
     "pause_on_battery": False,
@@ -185,9 +182,8 @@ def save_key(key: str, value: object) -> None:
 
 def _key_to_section(key: str) -> str:
     mapping = {
-        "log_level": "general", "start_minimized": "general",
-        "close_to_menu_bar": "general", "launch_at_login": "general",
-        "confirm_quit": "general", "auto_update": "telemetry",
+        "log_level": "general", "launch_at_login": "general",
+        "auto_update": "telemetry",
         "error_reporting": "telemetry",
         "pause_on_battery": "battery", "pause_when_away": "battery",
         "home_ssids": "battery",
@@ -229,10 +225,7 @@ def _key_to_ipc_key(key: str) -> str:
         "error_reporting": "error_reporting",
         # general section
         "log_level": "log_level",
-        "start_minimized": "start_minimized",
-        "close_to_menu_bar": "close_to_menu_bar",
         "launch_at_login": "launch_at_login",
-        "confirm_quit": "confirm_quit",
     }
     return mapping.get(key, key)
 
@@ -559,36 +552,6 @@ class SettingsWindow:
         except Exception:
             pass
         sys.exit(0)
-
-    def _show_confirm_quit(self) -> None:
-        c = self._col
-        top = tk.Toplevel(self._root, bg=c["window_bg"])
-        top.title("")
-        top.resizable(False, False)
-        top.transient(self._root)
-        top.grab_set()
-        top.geometry("320x140")
-        top.update_idletasks()
-        px, py = self._root.winfo_x(), self._root.winfo_y()
-        pw, ph = self._root.winfo_width(), self._root.winfo_height()
-        tw, th = top.winfo_width(), top.winfo_height()
-        top.geometry(f"+{px + (pw - tw)//2}+{py + (ph - th)//2}")
-
-        frm = tk.Frame(top, bg=c["window_bg"], padx=20, pady=20)
-        frm.pack(expand=True, fill="both")
-        tk.Label(frm, text="Quit Clairvoyant-Optics?",
-                 font=("SF Pro Text", 13, "bold"), fg=c["label_primary"],
-                 bg=c["window_bg"]).pack(anchor="w")
-        tk.Label(frm, text="The application will stop monitoring cameras.",
-                 font=("SF Pro Text", 11), fg=c["label_secondary"],
-                 bg=c["window_bg"]).pack(anchor="w", pady=(4, 16))
-
-        btn_row = tk.Frame(frm, bg=c["window_bg"])
-        btn_row.pack(anchor="e")
-        cancel_btn = self._mac_button(btn_row, "Cancel", top.destroy, style="default", font_size=12, padx=16, pady=4)
-        cancel_btn.pack(side="left", padx=(0, 8))
-        quit_btn = self._mac_button(btn_row, "Quit", lambda: [top.destroy(), self._quit()], style="destructive", font_size=12, padx=16, pady=4)
-        quit_btn.pack(side="left")
 
     # ── toolbar ─────────────────────────────────────────────────────────
 

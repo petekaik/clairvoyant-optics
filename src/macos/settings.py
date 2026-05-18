@@ -25,10 +25,7 @@ CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
 DEFAULTS: dict = {
     "log_level": "INFO",
-    "start_minimized": True,
-    "close_to_menu_bar": True,
     "launch_at_login": False,
-    "confirm_quit": False,
     "auto_update": False,
     "error_reporting": False,
     "pause_on_battery": False,
@@ -211,12 +208,8 @@ class SettingsWindow:
         self._root.bind("<Command-w>", lambda e: self._on_close())
 
     def _on_close(self) -> None:
-        if self._cfg.get("close_to_menu_bar", True):
-            self._root.withdraw()
-        elif self._cfg.get("confirm_quit", False):
-            self._show_confirm_quit()
-        else:
-            self._quit()
+        # Always quit on window close — prevents ghost lingering in dock
+        self._quit()
 
     def _quit(self) -> None:
         (CONFIG_DIR / "settings.pid").unlink(missing_ok=True)
@@ -361,18 +354,9 @@ class SettingsWindow:
         self._section_header(parent, "Behavior", "How the app starts and stays")
 
         sf = self._section(parent)
-        self._mac_toggle(sf, "Start Minimized",
-                         "Launch directly to the menu bar",
-                         "start_minimized")
-        self._mac_toggle(sf, "Close to Menu Bar",
-                         "Closing the window hides instead of quitting",
-                         "close_to_menu_bar")
         self._mac_toggle(sf, "Launch at Login",
                          "Start automatically when you log in",
                          "launch_at_login")
-        self._mac_toggle(sf, "Confirm Before Quit",
-                         "Ask for confirmation before quitting",
-                         "confirm_quit")
 
     # ── tab: Streams ────────────────────────────────────────────────────
     def _build_streams(self, parent: tk.Frame) -> None:

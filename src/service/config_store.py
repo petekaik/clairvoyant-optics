@@ -33,10 +33,7 @@ DEFAULT_CONFIG_YAML = """# Clairvoyant-Optics v5.0 Configuration
 
 general:
   log_level: INFO
-  start_minimized: true
-  close_to_menu_bar: true
   launch_at_login: false
-  confirm_quit: false
 
 cameras:
   # - name: etupiha
@@ -104,10 +101,7 @@ class CameraConfig:
 @dataclass
 class GeneralConfig:
     log_level: str = "INFO"
-    start_minimized: bool = True
-    close_to_menu_bar: bool = True
     launch_at_login: bool = False
-    confirm_quit: bool = False
 
 
 @dataclass
