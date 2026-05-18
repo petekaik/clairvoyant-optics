@@ -2,6 +2,18 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.4.0] — 2026-05-19
+
+### Added
+
+- **Web Dashboard hot reload** — `web_dashboard.py main()` lukee nyt `config.yaml`:n web.host, web.port, web.enabled. `menu_bar.py` monitoroi web-config-muutoksia poll-loopissa ja restartaa web-serverin automaattisesti.
+- **ConfigStore.on_change callback** — Section-spesifinen callback `set()`-kutsulle. Varmistaa, että daemon ja menu_bar reagoivat web-asetusten muutoksiin.
+
+### Fixed
+
+- **Web Dashboard portti ignoorasi config.yaml:n** — `web_dashboard.py` hardkoodasi port 8765. Korjattu: lukee `web.host`/`web.port`/`web.enabled` config.yaml:stä.
+- **menu_bar.py ei restartannut web serveriä config-muutoksilla** — Korjattu: poll-loop monitoroi web configia, restartaa prosessin muutoksilla.
+
 ## [5.3.2] — 2026-05-19
 
 ### Fixed (UAT v5.3.1 — 4 uutta bugia)

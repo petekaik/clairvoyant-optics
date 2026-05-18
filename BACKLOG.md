@@ -1,18 +1,13 @@
 # BACKLOG
 
-## v5.3.0 — Current (2026-05-18)
+## v5.4.0 — Current (2026-05-19)
 
-- ✅ **Auto-Update / Error Reporting config persistence** — `auto_update`/`error_reporting` toggles map to `telemetry` section instead of `advanced`. `_key_to_section()` + `load_config()` molemmat korjattu (korjaa TEST_RESULTS.md EXTRA-bugi)
+- ✅ **Web Dashboard hot reload** — `web_dashboard.py main()` lukee nyt `config.yaml`:n web.host, web.port, web.enabled. `menu_bar.py` monitoroi web-config-muutoksia poll-loopissa ja restartaa web serverin automaattisesti.
+- ✅ **ConfigStore.on_change** — Section-spesifinen callback `set()`-kutsulle (käytetään web-config muutosten monitorointiin).
+- ✅ **YAML string representer** — Stringit joissa kaksoispiste kvotoidaan automaattisesti (estää YAML 1.1 sexagesimaaliparsinnan DND-kellonajoilla).
+- ✅ **Home WiFi UX** — List-view Add/Delete + Enter binding (kuten kamerafeedeissä).
 
-## v5.2.5 Mac Power
-- Sovelluksen arkkitehtuurin korjaukset (Intel vs. MacOS M-series)
-- MLX ja Neural Accelerators hyödyntäminen koneoppimisen malleissa (acceleration, power efficiency)
-
-## Housekeeping task
-- varmista ~/.clairvoyant-optics/config.yaml eheys ja että se vastaa viimeisimmän sovellusversion specsiä
-- varmista, että sovelluksen ensiasennus & käynnistys luo viimeisimmän specsin mukaisen konfiguraatiotiedoston "sane defaults" arvoilla (lokaalin deviympäristön IP osoitteet ja salaisuudet eivät saa vuotaa)
-
-## v5.4.0 — Tiekartta
+## v5.5.0 — Tiekartta
 
 - **ML-stubien korvaaminen** — `camera_manager.py`, `ml_manager.py`, `notification_bus.py` stubit korvataan oikeilla toteutuksilla. YOLOv8n/InsightFace-mallien lazy-load DMG:n koon minimoimiseksi.
 - **Models download first-run** — Automaattinen ONNX-mallien lataus ensimmäisellä käynnistyksellä (YOLOv8n, InsightFace detection + recognition). Vaatii network access -oikeudet.
@@ -22,8 +17,16 @@
 - **Telemetry** — Käyttöstatistiikka ja virheenseuranta (opt-in).
 - **macOS 15 (Sequoia) optimoinnit** — `WindowServer`-viiveet, `LSUIElement`-käyttäytyminen.
 
+## Housekeeping (ongoing)
+
+- ✅ ~~varmista ~/.clairvoyant-optics/config.yaml eheys ja että se vastaa viimeisimmän sovellusversion specsiä~~ (YAML persist + custom representer korjattu)
+- ✅ ~~varmista, että sovelluksen ensiasennus & käynnistys luo viimeisimmän specsin mukaisen konfiguraatiotiedoston "sane defaults" arvoilla~~ (DEFAULT_CONFIG_YAML ajantasalla)
+
 ## Valmiit (Done)
 
+- ✅ **v5.4.0** — Web Dashboard hot reload, ConfigStore.on_change, YAML string representer, Home WiFi UX
+- ✅ **v5.3.2** — UAT v5.3.1 4 bugia: Sounds, DND YAML, Home WiFi UX, API Server config
+- ✅ **v5.3.1** — Config mapping fix (11 EXTRA bugs: IPC key mapping, section-aware YAML, type coercion)
 - ✅ **v5.3.0** — Auto-Update / Error Reporting config persistence fix (telemetry section mapping)
 - ✅ **v5.2.0** — LaunchAgent plist automation, API Host/Port persistence fix, Test Notification/Alert buttons, live dark mode thread-safety
 - ✅ **v5.1.0** — Service-oriented architecture: IPC-daemon, HIG settings, dark mode, camera persist, Launch at Login, API Host/Port hot reload, home_ssids persistenssi

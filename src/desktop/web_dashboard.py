@@ -20,7 +20,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-VERSION = "5.2.0"
+VERSION = "5.4.0"
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 
 # ── IPC client (minimal, avoids src.* imports for standalone bundle compat) ─
@@ -324,6 +324,24 @@ def main():
     host = "127.0.0.1"
     port = 8765
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Read config.yaml for web host/port/enabled
+    config_file = CONFIG_DIR / "config.yaml"
+    if config_file.exists():
+        try:
+            import yaml
+            with open(config_file) as f:
+                cfg = yaml.safe_load(f) or {}
+            web_cfg = cfg.get("web", {})
+            host = web_cfg.get("host", host)
+            port = web_cfg.get("port", port)
+            enabled = web_cfg.get("enabled", True)
+            if not enabled:
+                print("Web dashboard disabled in config — exiting", file=sys.stderr)
+                sys.exit(0)
+        except Exception:
+            pass
+
     print(f"Web dashboard starting: http://{host}:{port}", file=sys.stderr)
     server = HTTPServer((host, port), DashboardHandler)
     server.serve_forever()

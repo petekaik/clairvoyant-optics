@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.3.2"
+VERSION = "5.4.0"
 
 # ── paths ──────────────────────────────────────────────────────────────
 

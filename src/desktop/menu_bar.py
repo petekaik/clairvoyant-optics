@@ -14,6 +14,7 @@ import signal
 import sys
 import threading
 import time
+import logging
 from pathlib import Path
 
 try:
@@ -50,6 +51,8 @@ from src.desktop.ipc_client import IPCClient
 # ── Web Server ─────────────────────────────────────────────────────────────
 
 _web_server_pid: int | None = None
+
+logger = logging.getLogger("clairvoyant.app")
 
 
 def _spawn_web_server(bundle_resources: Path, python_bin: Path, is_bundled: bool) -> int | None:
@@ -107,9 +110,42 @@ class ClairvoyantApp(rumps.App):
             python_bin = bundle_resources.parent / "MacOS" / "python"
         else:
             python_bin = Path(sys.executable)
+        # Track which config values we spawned with so we can detect changes
+        self._web_config = self._read_web_config()
         pid = _spawn_web_server(bundle_resources, python_bin, IS_BUNDLED)
         if pid:
             _web_server_pid = pid
+
+    def _stop_web_server(self):
+        """Kill the currently running web dashboard process."""
+        global _web_server_pid
+        if _web_server_pid:
+            import subprocess
+            try:
+                subprocess.run(["kill", str(_web_server_pid)], timeout=3, check=False)
+            except Exception:
+                pass
+            _web_server_pid = None
+
+    def _restart_web_server(self):
+        """Restart web dashboard to pick up config changes."""
+        logger.info("Restarting web dashboard for config change")
+        self._stop_web_server()
+        self._start_web_server()
+
+    def _read_web_config(self) -> dict:
+        """Read web section from daemon config (host, port, enabled)."""
+        try:
+            resp = self._ipc.call("config.get", {"section": "web"}, timeout=3)
+            if "result" in resp and resp["result"]:
+                return {
+                    "host": resp["result"].get("host", "127.0.0.1"),
+                    "port": resp["result"].get("port", 8765),
+                    "enabled": resp["result"].get("enabled", True),
+                }
+        except Exception:
+            pass
+        return {"host": "127.0.0.1", "port": 8765, "enabled": True}
 
     # ── Menu construction ───────────────────────────────────────────
 
@@ -233,6 +269,18 @@ class ClairvoyantApp(rumps.App):
             elif "error" in resp:
                 self._status = {"state": "error", "cameras": {}, "error": resp["error"].get("message", "Unknown")}
                 self._update_ui()
+
+            # Check web config for changes every 6s (every ~3rd loop)
+            if hasattr(self, "_web_config") and int(time.time()) % 6 == 0:
+                try:
+                    new_cfg = self._read_web_config()
+                    if new_cfg != self._web_config:
+                        logger.info(f"Web config changed: {self._web_config} → {new_cfg}")
+                        self._web_config = new_cfg
+                        self._restart_web_server()
+                except Exception:
+                    pass
+
             time.sleep(2)
 
     def _on_daemon_disconnect(self):
