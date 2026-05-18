@@ -1,4 +1,4 @@
-# Clairvoyant-Optics v5.1
+# Clairvoyant-Optics v5.3
 
 **Your digital eye for macOS.** Menu bar app that monitors surveillance cameras, recognizes family members, and sends native notifications — all running 100% locally on Apple Silicon.
 
@@ -29,7 +29,7 @@ The daemon auto-starts when the menu bar app launches. A LaunchAgent plist is pr
 
 ### DMG Installer (recommended — no Python needed)
 
-1. Download `Clairvoyant-Optics-5.1.0.dmg` from [Releases](https://github.com/petekaik/clairvoyant-optics/releases)
+1. Download `Clairvoyant-Optics-5.3.0.dmg` from [Releases](https://github.com/petekaik/clairvoyant-optics/releases)
 2. Open the DMG and drag `Clairvoyant-Optics.app` to `/Applications`
 3. **First launch** — macOS Gatekeeper blocks unsigned apps. Bypass it once:
    - **Right-click** the app in `/Applications` → **Open** → confirm the dialog
@@ -60,7 +60,7 @@ All settings live in `~/.clairvoyant-optics/config.yaml`. Use the **Settings…*
 | **General** (⚙) | Log Level, Launch at Login, API Server (Host + Port + Apply & Test) |
 | **Streams** (▶) | Camera management — add/remove cameras, stream URLs, snap URLs |
 | **Notifications** (⚝) | Notification toggles, alert sounds, Do Not Disturb schedule |
-| **Advanced** (⌅) | Auto-Update, Error Reporting, Battery/power settings, Home WiFi SSIDs |
+| **Advanced** (⌅) | Auto-Update, Error Reporting, Test Notification/Alert buttons, Battery/power settings, Home WiFi SSIDs, _Manage Launch Agent_ |
 
 The settings window follows [macOS HIG toolbar design](https://developer.apple.com/design/human-interface-guidelines/toolbars) with a left-side tab bar, SF fonts, and full dark mode support.
 
@@ -111,7 +111,11 @@ cp assets/fi.kaikkonen.clairvoyantd.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/fi.kaikkonen.clairvoyantd.plist
 ```
 
-The daemon starts when you log in. The menu bar app connects to it automatically.
+The daemon starts when you log in. The menu bar app connects to it automatically. You can also manage the LaunchAgent from Settings → Advanced → **Manage Launch Agent** (auto-load/unload).
+
+### API Host & Port Persistence
+
+v5.2+ persists the API Host and Port across app restarts. Configuration is saved in the daemon's IPC config store and restored on next launch. The Settings → General tab reads back the active Host and Port from IPC, so changes survive relaunches.
 
 ## Web Dashboard
 
@@ -164,20 +168,43 @@ src/
 | `bash scripts/test-dmg.sh` | End-to-end GUI validation: DMG integrity, install, stability, osascript menu bar, settings window, clean shutdown |
 | `bash scripts/ci-smoke-test.sh` | Headless CI validation: bundle structure, imports, 15s stability |
 
-Build produces `dist/Clairvoyant-Optics-5.1.0.dmg` (~15 MB).
+Build produces `dist/Clairvoyant-Optics-5.3.0.dmg`.
+
+### GitHub Actions CI/CD
+
+| Workflow | Trigger | Output |
+|---|---|---|
+| `build.yml` | Push to master | Builds `.app`, runs smoke tests |
+| `release.yml` | Push to master + tags matching `v*` | Full DMG build + smoke test + GitHub Release with DMG artifact auto-published |
 
 ## Testing
 
 ### Automated
 
 ```bash
-bash scripts/test-dmg.sh dist/Clairvoyant-Optics-5.1.0.dmg  # 23 tests, full GUI lifecycle
+bash scripts/test-dmg.sh dist/Clairvoyant-Optics-5.3.0.dmg  # 23 tests, full GUI lifecycle
 bash scripts/ci-smoke-test.sh                                 # 19 tests, headless
 ```
 
 ### UAT
 
 Full User Acceptance Testing spec in [UAT.md](UAT.md). 20 test cases, 8 fully automated (AUTOMATISOI ✅).
+
+## Release Process
+
+1. Update version in `src/version.py`
+2. Run `./scripts/build-dmg.sh` locally for dev validation
+3. Commit & push to master — GitHub Actions builds and verifies
+4. `git tag vX.Y.Z && git push origin vX.Y.Z` — triggers release.yml, auto-publishes DMG to GitHub Releases
+
+## Version History
+
+| Version | Key Changes |
+|---|---|
+| **5.3.0** | Auto-Update / Error Reporting config persistence fix; build-dmg.sh cleanup (version-scoped DMG_RW, clean DMG_BUILD) |
+| **5.2.0** | LaunchAgent automation (load/unload), Test Notification/Alert buttons in Advanced tab, API Host/Port persistence, bundling fixes |
+| **5.1.0** | Dark mode (native macOS), camera name save fix, thread-safe theme switch, icon consistency |
+| **5.0.0** | Service-oriented architecture: daemon + IPC + rumps menu bar, settings.py (tkinter), web_dashboard.py (stdlib), LaunchAgent |
 
 ## Performance (MacBook Air M1, 8 GB)
 
@@ -196,6 +223,7 @@ Full User Acceptance Testing spec in [UAT.md](UAT.md). 20 test cases, 8 fully au
 - **Photos.app iCloud** — "Optimize Mac Storage" breaks face import. Use manual enrollment or download originals.
 - **Self-signed camera certs** — Snap JPEG endpoints need `verify=False`.
 - **Gatekeeper** — Right-click → Open once to trust permanently.
+- **Node.js 20 deprecation (GitHub Actions)** — CI actions run on Node.js 20; migration to Node.js 24 required by September 2026.
 
 ## Privacy & Security
 
