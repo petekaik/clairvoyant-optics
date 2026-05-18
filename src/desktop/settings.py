@@ -1328,23 +1328,25 @@ class SettingsWindow:
         """Refresh model download status from daemon."""
         try:
             result = _ipc_call("ml.status")
-            if result and "models" in result:
-                for model_name, status in result["models"].items():
-                    if model_name in self._model_status_labels:
-                        s = status.get("status")
-                        if s == "complete":
-                            self._model_status_labels[model_name].set("Complete")
-                            self._set_btn_text(self._model_buttons[model_name], "Downloaded")
-                        elif s == "downloading":
-                            p = status.get("progress", 0)
-                            self._model_status_labels[model_name].set(f"Downloading ({p}%)")
-                            self._set_btn_text(self._model_buttons[model_name], "Downloading")
-                        elif s == "error":
-                            self._model_status_labels[model_name].set(f"Error: {status.get('error', 'Unknown')}")
-                            self._set_btn_text(self._model_buttons[model_name], "Retry")
-                        else:
-                            self._model_status_labels[model_name].set("Not Downloaded")
-                            self._set_btn_text(self._model_buttons[model_name], "Download")
+            if not result or not isinstance(result, dict):
+                return
+            progress = result.get("progress", {})
+            loaded = result.get("loaded", {})
+            for model_name in self._model_status_labels:
+                if model_name in progress:
+                    p = progress[model_name]
+                    if p == "complete":
+                        self._model_status_labels[model_name].set("Complete")
+                        self._set_btn_text(self._model_buttons[model_name], "Downloaded")
+                    elif isinstance(p, (int, float)) and p >= 0:
+                        self._model_status_labels[model_name].set(f"Downloading ({p:.1f}%)")
+                        self._set_btn_text(self._model_buttons[model_name], "Downloading")
+                    else:
+                        self._model_status_labels[model_name].set("Not Downloaded")
+                        self._set_btn_text(self._model_buttons[model_name], "Download")
+                else:
+                    self._model_status_labels[model_name].set("Not Downloaded")
+                    self._set_btn_text(self._model_buttons[model_name], "Download")
         except Exception:
             pass
 
@@ -1469,12 +1471,11 @@ class SettingsWindow:
         try:
             # In a real implementation this would capture from camera
             result = _ipc_call("faces.enroll", {"name": name})
-            if result and result.get("success"):
+            if result and result.get("enrolled"):
                 self._enroll_status_var.set(f"Enrolled: {name}")
                 self._refresh_faces()  # Refresh the list
             else:
-                error = result.get("error", "Unknown error") if result else "No response"
-                self._enroll_status_var.set(f"Error: {error}")
+                self._enroll_status_var.set(f"Error: enrollment failed")
         except Exception as e:
             self._enroll_status_var.set(f"Error: {str(e)}")
         finally:
