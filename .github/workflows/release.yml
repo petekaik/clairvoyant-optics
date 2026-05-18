@@ -134,10 +134,10 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           APP="dist/Clairvoyant-Optics.app"
           DMG_BUILD="/tmp/cv-dmg-build"
-          DMG_RW="/tmp/cv-rw.dmg"
+          DMG_RW="/tmp/cv-rw-${VERSION}.dmg"
           FINAL_DMG="dist/Clairvoyant-Optics-${VERSION}.dmg"
 
-          rm -rf "$DMG_BUILD"
+          rm -rf "$DMG_BUILD" "$DMG_RW"
           mkdir -p "$DMG_BUILD"
           cp -R "$APP" "$DMG_BUILD/"
           ln -sf /Applications "$DMG_BUILD/Applications"

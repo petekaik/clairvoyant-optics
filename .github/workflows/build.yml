@@ -47,7 +47,7 @@ jobs:
           path: |
             build/
             *.spec
-          key: ${{ runner.os }}-pyinstaller-${{ steps.version.outputs.version }}-${{ hashFiles('src/macos/menubar_app.py', 'icon.icns') }}
+          key: ${{ runner.os }}-pyinstaller-${{ steps.version.outputs.version }}-${{ hashFiles('src/desktop/menu_bar.py', 'icon.icns') }}
           restore-keys: ${{ runner.os }}-pyinstaller-
 
       - name: Build with PyInstaller (onedir)
@@ -60,7 +60,7 @@ jobs:
             --osx-bundle-identifier=fi.kaikkonen.clairvoyant-optics \
             --add-data "icon.icns:." \
             --hidden-import tkinter \
-            src/macos/menubar_app.py
+            src/desktop/menu_bar.py
 
       - name: Code sign & clean
         run: |
