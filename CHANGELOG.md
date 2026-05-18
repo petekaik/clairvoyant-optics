@@ -2,7 +2,23 @@
 
 All notable changes to Clairvoyant-Optics.
 
-## [5.3.0] — 2026-05-18
+## [5.3.1] — 2026-05-18
+
+### Fixed
+
+- **EXTRA HAVAINNOT (11 bugs) massiivinen korjaus** — Settings.py config mapping korjattu kattavasti:
+
+  **Config section mapping (8/11 bugs):** `_key_to_ipc_key()` korvattu explicit mappingilla (ei enää prefix-strippausta, joka tuotti vääriä IPC-avaimia). `_key_to_section()` sai puuttuvat mappingsit (`api_host`/`api_port` → `web`). `save_key()` fallback kirjoittaa nyt section-aware YAMLia (ei enää YAML-juureen). `load_config()` käyttää `_daemon_to_settings_value()` reverse-mappausta.
+
+  **Konfiguraation type coercion:** `home_ssids` konvertoidaan automaattisesti string↔list (UI: comma-separated → daemon: list[str]). `api_port` string↔int. Kaikki notifikaatio-togglejen ja DND-aikojen arvot tallentuvat oikeaan `notifications:`-sectioniin.
+
+  **Duplikaattiprosessi (1 bug):** `_manage_launch_agent()` käyttää nyt `python daemon.py` eikä `Clairvoyant-Optics --daemon`, joten Launch at Login -togglaus ei enää käynnistä toista menu bar -prosessia.
+
+  **UI-puutteet (2 bugia):** Lisätty "Enable API Server" toggle General → API Server -osioon (vastaa `web.enabled` config.yaml:ssa). Settings.app dock-ikoni kopioidaan oikein buildissa.
+
+  **Uusi test framework:** `tests/test_config_mapping.py` — 24 yksikkötestiä, jotka testaavat key mappingin, IPC → YAML fallbackin, type coercionin ja defaults-consistencyn ilman daemon- tai GUI-riippuvuuksia.
+
+- **ResourceWarning korjaus** — `_load_yaml()` ja `_save_yaml()` sulkevat nyt tiedostot oikein (with statement).
 
 ### Fixed
 

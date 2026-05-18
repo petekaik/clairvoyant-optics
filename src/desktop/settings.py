@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.3.0"
+VERSION = "5.3.1"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -57,6 +57,7 @@ DEFAULTS: dict = {
     "notification_sound_alert": "alarm",
     "notification_dnd_start": "",
     "notification_dnd_end": "",
+    "api_enabled": False,
 }
 
 # ── Dual config backend ───────────────────────────────────────────────
@@ -91,7 +92,8 @@ def _load_yaml(path: Path) -> dict:
     try:
         import yaml
         if path.exists():
-            data = yaml.safe_load(open(path))
+            with open(path) as f:
+                data = yaml.safe_load(f)
             return data if isinstance(data, dict) else {}
     except Exception:
         pass
@@ -101,7 +103,8 @@ def _save_yaml(path: Path, data: dict) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     try:
         import yaml
-        yaml.safe_dump(data, open(path, "w"), default_flow_style=False, allow_unicode=True)
+        with open(path, "w") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
     except Exception:
         with open(path, "w") as f:
             for k, v in data.items():
@@ -117,12 +120,12 @@ def load_config() -> dict:
                                 ("web", "api_"), ("battery", ""),
                                 ("telemetry", "")):
             if section in result and isinstance(result[section], dict):
-                # Flatten: web.host → api_host, notifications.enabled → notifications_enabled
                 for k, v in result[section].items():
-                    cfg[f"{prefix}{k}"] = v
+                    flat_key = f"{prefix}{k}"
+                    # Map daemon field names back to UI flat keys
+                    cfg[flat_key] = _daemon_to_settings_value(section, k, v)
         # Cameras come as list of dicts, not a dict
         if "cameras" in result and isinstance(result["cameras"], list):
-            # Daemon returns list of CameraConfig objects (serialized as dicts)
             cfg["cameras"] = list(result["cameras"])
         return cfg
 
@@ -131,18 +134,53 @@ def load_config() -> dict:
     cfg.update(_load_yaml(CONFIG_FILE))
     return cfg
 
-def save_key(key: str, value: object) -> None:
-    """Save single key: try IPC first, fallback to YAML."""
-    # Try IPC
+# ── Daemon ↔ Settings key/value mapping ─────────────────────────────
+
+def _settings_key_to_daemon(key: str, value: object) -> tuple[str, str, object]:
+    """Convert a settings flat key to (section, daemon_key, coerced_value) for IPC/YAML.
+
+    Handles key translation, section mapping, and type coercion (e.g. home_ssids string→list).
+    """
     section = _key_to_section(key)
     ipc_key = _key_to_ipc_key(key)
-    result = _ipc_call("config.set", {"section": section, "key": ipc_key, "value": value})
+
+    # Type coercion for daemon dataclass field types
+    if ipc_key == "home_ssids" and isinstance(value, str):
+        # UI stores as comma-separated string, daemon expects list[str]
+        value = [s.strip() for s in value.split(",") if s.strip()]
+    elif ipc_key == "port" and isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            pass
+
+    return section, ipc_key, value
+
+
+def _daemon_to_settings_value(section: str, daemon_key: str, value: object) -> object:
+    """Convert daemon field value back to settings UI flat value.
+
+    Handles type coercion (e.g. home_ssids list→string for Entry widget).
+    """
+    if daemon_key == "home_ssids" and isinstance(value, list):
+        return ", ".join(str(s) for s in value)
+    return value
+
+
+def save_key(key: str, value: object) -> None:
+    """Save single key: try IPC first, fallback to section-aware YAML."""
+    section, ipc_key, coerced = _settings_key_to_daemon(key, value)
+
+    # Try IPC
+    result = _ipc_call("config.set", {"section": section, "key": ipc_key, "value": coerced})
     if result:
         return
 
-    # Fallback: direct YAML
+    # Fallback: section-aware YAML write (not flat root!)
     cfg = _load_yaml(CONFIG_FILE)
-    cfg[key] = value
+    if section not in cfg or not isinstance(cfg[section], dict):
+        cfg[section] = {}
+    cfg[section][ipc_key] = coerced
     _save_yaml(CONFIG_FILE, cfg)
 
 def _key_to_section(key: str) -> str:
@@ -153,7 +191,7 @@ def _key_to_section(key: str) -> str:
         "error_reporting": "telemetry",
         "pause_on_battery": "battery", "pause_when_away": "battery",
         "home_ssids": "battery",
-        "api_host": "web", "api_port": "web",
+        "api_host": "web", "api_port": "web", "api_enabled": "web",
         "notifications_enabled": "notifications",
         "notify_on_family": "notifications", "notify_on_unknown": "notifications",
         "notification_sound_family": "notifications",
@@ -164,12 +202,39 @@ def _key_to_section(key: str) -> str:
     return mapping.get(key, "general")
 
 def _key_to_ipc_key(key: str) -> str:
-    """Strip section prefixes for flat YAML keys → IPC nested keys."""
-    prefixes = {"notification_sound_": "", "notification_dnd_": "", "notifications_": "", "notify_on_": ""}
-    for prefix, replacement in prefixes.items():
-        if key.startswith(prefix) and prefix != "":
-            return key[len(prefix):]
-    return key
+    """Map flat settings keys to daemon IPC keys (dataclass field names).
+
+    Daemon config_store.py uses specific field names per section.
+    This mapping decouples the Settings UI key namespace from daemon internals.
+    """
+    mapping: dict[str, str] = {
+        # notifications section
+        "notifications_enabled": "enabled",
+        "notify_on_family": "notify_on_family",
+        "notify_on_unknown": "notify_on_unknown",
+        "notification_sound_family": "sound_family",
+        "notification_sound_alert": "sound_alert",
+        "notification_dnd_start": "dnd_start",
+        "notification_dnd_end": "dnd_end",
+        # web section (api_ prefix → daemon host/port)
+        "api_host": "host",
+        "api_port": "port",
+        "api_enabled": "enabled",
+        # battery section
+        "home_ssids": "home_ssids",
+        "pause_on_battery": "pause_on_battery",
+        "pause_when_away": "pause_when_away",
+        # telemetry section
+        "auto_update": "auto_update",
+        "error_reporting": "error_reporting",
+        # general section
+        "log_level": "log_level",
+        "start_minimized": "start_minimized",
+        "close_to_menu_bar": "close_to_menu_bar",
+        "launch_at_login": "launch_at_login",
+        "confirm_quit": "confirm_quit",
+    }
+    return mapping.get(key, key)
 
 def save_cameras(cameras: list) -> None:
     """Save cameras list: try IPC, fallback YAML."""
@@ -623,6 +688,11 @@ class SettingsWindow:
         # API server
         self._section_header(parent, "API Server", "Web dashboard & REST API", pad_top=24)
         api_sf = self._section(parent)
+
+        # API enabled toggle
+        self._mac_toggle(api_sf, "Enable API Server",
+                         "Allow web dashboard and REST API access", "api_enabled")
+
         api_host_var = tk.StringVar(value=self._cfg.get("api_host", "127.0.0.1"))
         api_port_var = tk.StringVar(value=str(self._cfg.get("api_port", 8765)))
         self._api_status_var = tk.StringVar(value="")
@@ -1028,7 +1098,11 @@ class SettingsWindow:
         self._notify_app_if_needed(key)
 
     def _manage_launch_agent(self, enable: bool) -> None:
-        """Create or remove LaunchAgent plist for login auto-start."""
+        """Create or remove LaunchAgent plist for login auto-start.
+
+        Uses python + daemon.py directly (NOT Clairvoyant-Optics --daemon),
+        to avoid spawning a duplicate menu bar process.
+        """
         import plistlib
         import subprocess
 
@@ -1038,12 +1112,14 @@ class SettingsWindow:
         if enable:
             launch_agents_dir.mkdir(parents=True, exist_ok=True)
             if IS_BUNDLED:
-                app_exec = str(BUNDLE_DIR.parent / "MacOS" / "Clairvoyant-Optics")  # type: ignore[union-attr]
+                python_bin = str(BUNDLE_DIR.parent / "MacOS" / "python")  # type: ignore[union-attr]
+                daemon_script = str(BUNDLE_DIR / "lib" / "python3.11" / "src" / "service" / "daemon.py")  # type: ignore[union-attr]
             else:
-                app_exec = sys.executable
+                python_bin = sys.executable
+                daemon_script = str(Path(__file__).resolve().parent.parent.parent / "src" / "service" / "daemon.py")
             plist_data = {
                 "Label": "fi.kaikkonen.clairvoyantd",
-                "ProgramArguments": [app_exec, "--daemon"],
+                "ProgramArguments": [python_bin, daemon_script],
                 "RunAtLoad": True,
                 "KeepAlive": False,
             }

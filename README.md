@@ -168,7 +168,7 @@ src/
 | `bash scripts/test-dmg.sh` | End-to-end GUI validation: DMG integrity, install, stability, osascript menu bar, settings window, clean shutdown |
 | `bash scripts/ci-smoke-test.sh` | Headless CI validation: bundle structure, imports, 15s stability |
 
-Build produces `dist/Clairvoyant-Optics-5.3.0.dmg`.
+Build produces `dist/Clairvoyant-Optics-5.3.1.dmg`.
 
 ### GitHub Actions CI/CD
 
@@ -201,6 +201,7 @@ Full User Acceptance Testing spec in [UAT.md](UAT.md). 20 test cases, 8 fully au
 
 | Version | Key Changes |
 |---|---|
+| **5.3.1** | Major config mapping fix (11 EXTRA bugs: section-aware fallback, IPC key mapping, string↔list coercion, Launch Agent duplikaattiprosessi, API Server enabled toggle, ResourceWarnings). Uusi test framework 24 yksikkötestiä. |
 | **5.3.0** | Auto-Update / Error Reporting config persistence fix; build-dmg.sh cleanup (version-scoped DMG_RW, clean DMG_BUILD) |
 | **5.2.0** | LaunchAgent automation (load/unload), Test Notification/Alert buttons in Advanced tab, API Host/Port persistence, bundling fixes |
 | **5.1.0** | Dark mode (native macOS), camera name save fix, thread-safe theme switch, icon consistency |
