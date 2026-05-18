@@ -25,7 +25,7 @@ except ImportError:
 try:
     from src.version import VERSION
 except ImportError:
-    VERSION = "5.2.0"
+    VERSION = "5.4.1"
 
 # ── Paths ──────────────────────────────────────────────────────────────
 
@@ -50,35 +50,7 @@ from src.desktop.ipc_client import IPCClient
 
 # ── Web Server ─────────────────────────────────────────────────────────────
 
-_web_server_pid: int | None = None
-
 logger = logging.getLogger("clairvoyant.app")
-
-
-def _spawn_web_server(bundle_resources: Path, python_bin: Path, is_bundled: bool) -> int | None:
-    """Spawn the web dashboard server. Returns PID or None."""
-    import subprocess
-
-    if is_bundled:
-        web_script = bundle_resources / "web_dashboard.py"
-    else:
-        web_script = PROJECT_ROOT / "src" / "desktop" / "web_dashboard.py"
-
-    if not web_script.exists():
-        return None
-
-    try:
-        proc = subprocess.Popen(
-            [str(python_bin), str(web_script)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return proc.pid
-    except Exception:
-        return None
-
-# ── Menu Bar App ───────────────────────────────────────────────────────
 
 class ClairvoyantApp(rumps.App):
     """Menu bar app with live status from daemon via IPC."""
@@ -87,65 +59,14 @@ class ClairvoyantApp(rumps.App):
         icon = str(ASSETS / "eye_22.png") if (ASSETS / "eye_22.png").exists() else None
         super().__init__(name="Clairvoyant-Optics", title="", icon=icon, quit_button=None)
 
-        # Spawn web dashboard server
-        global _web_server_pid
-        if _web_server_pid is None:
-            self._start_web_server()
-
         self._ipc = IPCClient()
         self._status = {"state": "disconnected", "cameras": {}, "last_detection": None}
+        self._web_status = {"running": False}
         self._poll_thread: threading.Thread | None = None
         self._polling = False
 
         self._build_menu()
         self._connect_daemon()
-
-    # ── Web server management ───────────────────────────────────────
-
-    def _start_web_server(self):
-        """Spawn web dashboard as background process."""
-        global _web_server_pid
-        bundle_resources = Path(__file__).resolve().parent
-        if IS_BUNDLED:
-            python_bin = bundle_resources.parent / "MacOS" / "python"
-        else:
-            python_bin = Path(sys.executable)
-        # Track which config values we spawned with so we can detect changes
-        self._web_config = self._read_web_config()
-        pid = _spawn_web_server(bundle_resources, python_bin, IS_BUNDLED)
-        if pid:
-            _web_server_pid = pid
-
-    def _stop_web_server(self):
-        """Kill the currently running web dashboard process."""
-        global _web_server_pid
-        if _web_server_pid:
-            import subprocess
-            try:
-                subprocess.run(["kill", str(_web_server_pid)], timeout=3, check=False)
-            except Exception:
-                pass
-            _web_server_pid = None
-
-    def _restart_web_server(self):
-        """Restart web dashboard to pick up config changes."""
-        logger.info("Restarting web dashboard for config change")
-        self._stop_web_server()
-        self._start_web_server()
-
-    def _read_web_config(self) -> dict:
-        """Read web section from daemon config (host, port, enabled)."""
-        try:
-            resp = self._ipc.call("config.get", {"section": "web"}, timeout=3)
-            if "result" in resp and resp["result"]:
-                return {
-                    "host": resp["result"].get("host", "127.0.0.1"),
-                    "port": resp["result"].get("port", 8765),
-                    "enabled": resp["result"].get("enabled", True),
-                }
-        except Exception:
-            pass
-        return {"host": "127.0.0.1", "port": 8765, "enabled": True}
 
     # ── Menu construction ───────────────────────────────────────────
 
@@ -270,16 +191,11 @@ class ClairvoyantApp(rumps.App):
                 self._status = {"state": "error", "cameras": {}, "error": resp["error"].get("message", "Unknown")}
                 self._update_ui()
 
-            # Check web config for changes every 6s (every ~3rd loop)
-            if hasattr(self, "_web_config") and int(time.time()) % 6 == 0:
-                try:
-                    new_cfg = self._read_web_config()
-                    if new_cfg != self._web_config:
-                        logger.info(f"Web config changed: {self._web_config} → {new_cfg}")
-                        self._web_config = new_cfg
-                        self._restart_web_server()
-                except Exception:
-                    pass
+            # Check web status from daemon every 6s
+            if int(time.time()) % 6 == 0:
+                wresp = self._ipc.call("web_status", timeout=3)
+                if "result" in wresp:
+                    self._web_status = wresp["result"]
 
             time.sleep(2)
 
@@ -396,19 +312,11 @@ class ClairvoyantApp(rumps.App):
         self._polling = False
         self._ipc.close()
         # Kill daemon
-        global _web_server_pid
         import subprocess
         try:
             subprocess.run(["pkill", "-f", "daemon.py"], timeout=3, check=False)
         except Exception:
             pass
-        # Kill web server
-        if _web_server_pid:
-            try:
-                subprocess.run(["kill", str(_web_server_pid)], timeout=3, check=False)
-            except Exception:
-                pass
-            _web_server_pid = None
         rumps.quit_application()
 
 

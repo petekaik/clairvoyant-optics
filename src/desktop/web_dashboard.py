@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clairvoyant-Optics v5.0.1 — Web Dashboard (stdlib http.server).
+"""Clairvoyant-Optics v5.4.1 — Web Dashboard (stdlib http.server).
 
 Lightweight HTTP server for the web dashboard. No external dependencies
 (no FastAPI/uviicorn). Communicates with clairvoyantd via IPC.
@@ -20,7 +20,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-VERSION = "5.4.0"
+VERSION = "5.4.1"
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 
 # ── IPC client (minimal, avoids src.* imports for standalone bundle compat) ─

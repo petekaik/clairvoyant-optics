@@ -14,6 +14,7 @@ import os
 import signal
 import sys
 import time
+import subprocess
 from pathlib import Path
 
 # Ensure project root is on path (for src.* imports when running standalone)
@@ -27,7 +28,59 @@ from src.service.orchestrator import Orchestrator
 
 logger = logging.getLogger("clairvoyantd")
 
-VERSION = "5.2.0"
+VERSION = "5.4.1"
+
+
+_web_proc: subprocess.Popen | None = None
+
+
+def _web_start(cfg_store) -> dict:
+    global _web_proc
+    if _web_proc and _web_proc.poll() is None:
+        return {"result": {"running": True, "message": "already running"}}
+    enabled = cfg_store.config.web.enabled
+    host = cfg_store.config.web.host
+    port = cfg_store.config.web.port
+    script = find_web_dashboard_script()
+    if not script:
+        return {"error": {"message": "web_dashboard.py not found"}}
+    try:
+        _web_proc = subprocess.Popen(
+            [sys.executable, str(script)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {"result": {"running": True, "pid": _web_proc.pid, "host": host, "port": port}}
+    except Exception as e:
+        return {"error": {"message": str(e)}}
+
+
+def _web_stop() -> dict:
+    global _web_proc
+    if _web_proc and _web_proc.poll() is None:
+        _web_proc.terminate()
+        try:
+            _web_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _web_proc.kill()
+        _web_proc = None
+        return {"result": {"running": False}}
+    return {"result": {"running": False, "message": "was not running"}}
+
+
+def find_web_dashboard_script() -> Path | None:
+    # Bundle mode: Resources/lib/python3.11/src/desktop/web_dashboard.py
+    # Dev mode: projektin src/desktop/web_dashboard.py
+    candidates = []
+    # Bundle mode
+    bundle_resources = Path(__file__).resolve().parent.parent.parent / "desktop"
+    candidates.append(bundle_resources / "web_dashboard.py")
+    # Development mode
+    candidates.append(Path(__file__).resolve().parent.parent / "desktop" / "web_dashboard.py")
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -208,6 +261,10 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
             logger.warning(f"Test notification failed: {e}")
             return {"ok": False, "error": str(e)}
 
+    def web_restart(params: dict) -> dict:
+        _web_stop()
+        return _web_start(config_store)
+
     return {
         "status": status,
         "start": start,
@@ -221,6 +278,17 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
         "snapshot": snapshot,
         "ping": ping,
         "test_notify": test_notify,
+        "web_status": lambda params: {
+            "result": {
+                "running": _web_proc is not None and _web_proc.poll() is None,
+                "pid": _web_proc.pid if _web_proc and _web_proc.poll() is None else None,
+                "host": config_store.config.web.host,
+                "port": config_store.config.web.port,
+            }
+        },
+        "web_start": lambda params: _web_start(config_store),
+        "web_stop": lambda params: _web_stop(),
+        "web_restart": web_restart,
     }
 
 

@@ -2,6 +2,14 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.4.1] — 2026-05-19
+
+### Fixed
+- Web Dashboard ei käynnistynyt DMG:ssä (web_dashboard.py puuttui bundlesta)
+- Settings.app dockissa valkoinen ikoni (CFBundleIconFile + icon.icns kopio)
+- API Server -statusindikaattori ja Start/Stop/Restart-napit Settings → Generaliin
+- Web-serverin hallinta siirretty daemonille (ei enää menu_bar subprocess)
+
 ## [5.4.0] — 2026-05-19
 
 ### Added
