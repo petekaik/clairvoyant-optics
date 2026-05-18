@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.3.1"
+VERSION = "5.3.2"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -904,10 +904,66 @@ class SettingsWindow:
         self._mac_toggle(sf, "Pause When Away from Home",
                          "Pause when not connected to home WiFi", "pause_when_away")
 
+        # ── Home WiFi list (käyttäjäystävällinen list-view) ──────────────
         sf2 = self._section(parent, "Home WiFi")
-        self._labeled_entry(sf2, "SSIDs (comma-separated)",
-                            self._cfg.get("home_ssids", ""),
-                            lambda v: self._set("home_ssids", v))
+        self._home_ssids_list: list[str] = []
+        raw = self._cfg.get("home_ssids", "")
+        if isinstance(raw, str):
+            self._home_ssids_list = [s.strip() for s in raw.split(",") if s.strip()]
+        elif isinstance(raw, list):
+            self._home_ssids_list = list(raw)
+
+        # Listbox current SSIDs
+        list_frame = tk.Frame(sf2, bg=c["window_bg"])
+        list_frame.pack(fill="x", pady=(4, 0))
+        self._ssid_lb = tk.Listbox(
+            list_frame, height=4, bg=c["entry_bg"], fg=c["label_primary"],
+            highlightbackground=c["entry_border"], highlightthickness=1,
+            relief="flat", bd=0, selectbackground=c["control_active"],
+            selectforeground=c["label_primary"], font=("SF Mono", 12),
+        )
+        self._ssid_lb.pack(side="left", fill="x", expand=True)
+        for ssid in self._home_ssids_list:
+            self._ssid_lb.insert("end", ssid)
+
+        # Delete button
+        del_btn = self._mac_button(
+            list_frame, "✕", self._delete_selected_ssid,
+            style="destructive", padx=8, pady=2, font_size=12,
+        )
+        del_btn.pack(side="right", padx=(6, 0))
+
+        # Add row: Entry + Add button
+        add_frame = tk.Frame(sf2, bg=c["window_bg"])
+        add_frame.pack(fill="x", pady=(4, 0))
+        self._ssid_entry_var = tk.StringVar()
+        ssid_ent = tk.Entry(
+            add_frame, textvariable=self._ssid_entry_var,
+            bg=c["entry_bg"], fg=c["label_primary"],
+            insertbackground=c["label_primary"],
+            font=("SF Mono", 12),
+            relief="flat", bd=0,
+            highlightbackground=c["entry_border"],
+            highlightcolor=c["control_active"],
+            highlightthickness=1,
+        )
+        ssid_ent.pack(side="left", fill="x", expand=True, ipadx=6, ipady=4)
+
+        # Enter key saves immediately
+        def _add_ssid_enter(event=None):
+            self._add_ssid()
+        ssid_ent.bind("<Return>", _add_ssid_enter)
+
+        add_btn = self._mac_button(
+            add_frame, "Add", self._add_ssid,
+            style="primary", padx=12, pady=4, font_size=12,
+        )
+        add_btn.pack(side="right", padx=(6, 0))
+
+        self._ssid_status_var = tk.StringVar(value="")
+        tk.Label(sf2, textvariable=self._ssid_status_var,
+                 font=("SF Pro Text", 10),
+                 bg=c["window_bg"], fg=c["label_tertiary"]).pack(anchor="w", pady=(2, 0))
 
         # ── Test Notifications (v5.2.0) ─────────────────────────────
         self._section_header(parent, "Test Notifications", "Verify alert delivery", pad_top=24)
@@ -932,17 +988,20 @@ class SettingsWindow:
                  font=("SF Pro Text", 11),
                  bg=c["window_bg"], fg=c["label_secondary"]).pack(anchor="w", pady=(8, 0))
 
-    def _send_test_notification(self, title: str, subtitle: str, message: str) -> None:
+    def _send_test_notification(self, title: str, subtitle: str, message: str,
+                                sound_key: str = "sound_family") -> None:
         """Send a macOS notification or notify via IPC daemon."""
         # Try IPC: call daemon to send notification
         result = _ipc_call("config.get", {"section": "notifications"})
         if result:
-            # IPC daemon available — use test_notify IPC method if available
+            # IPC daemon available — use test_notify with configured sound
             test_resp = _ipc_call("test_notify", {
                 "title": title, "subtitle": subtitle, "message": message,
+                "sound_key": sound_key,
             })
             if test_resp:
-                self._test_status_var.set("✅ Notification sent via daemon")
+                msg = test_resp.get("message", "Notification sent via daemon")
+                self._test_status_var.set(f"✅ {msg}")
                 return
 
         # Fallback: use rumps or subprocess osascript
@@ -961,6 +1020,7 @@ class SettingsWindow:
             "Clairvoyant-Optics",
             "Family Member Detected",
             "👤 Pomo detected on Camera 1",
+            sound_key="sound_family",
         )
 
     def _test_alert_notification(self) -> None:
@@ -968,7 +1028,35 @@ class SettingsWindow:
             "Clairvoyant-Optics",
             "⚠ Unknown Person Alert",
             "Unknown person detected on Camera 1!",
+            sound_key="sound_alert",
         )
+
+    # ── Home WiFi list helpers ───────────────────────────────────────────
+
+    def _add_ssid(self) -> None:
+        name = self._ssid_entry_var.get().strip()
+        if not name:
+            self._ssid_status_var.set("⏎ Enter an SSID name")
+            return
+        if name in self._home_ssids_list:
+            self._ssid_status_var.set(f"⚠ SSID '{name}' already in list")
+            return
+        self._home_ssids_list.append(name)
+        self._ssid_lb.insert("end", name)
+        self._ssid_entry_var.set("")
+        self._ssid_status_var.set(f"✅ Added '{name}'")
+        self._set("home_ssids", ", ".join(self._home_ssids_list))
+
+    def _delete_selected_ssid(self) -> None:
+        sel = self._ssid_lb.curselection()
+        if not sel:
+            self._ssid_status_var.set("⚠ Select an SSID to remove")
+            return
+        idx = sel[0]
+        removed = self._home_ssids_list.pop(idx)
+        self._ssid_lb.delete(idx)
+        self._ssid_status_var.set(f"🗑 Removed '{removed}'")
+        self._set("home_ssids", ", ".join(self._home_ssids_list))
 
     # ── reusable UI primitives ──────────────────────────────────────────
 

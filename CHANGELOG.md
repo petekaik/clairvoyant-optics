@@ -2,6 +2,26 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.3.2] — 2026-05-19
+
+### Fixed (UAT v5.3.1 — 4 uutta bugia)
+
+- **Settings - Sounds eivät vaihdu:** `daemon.test_notify()` luki kovakoodatun `sound name "default"`. Korjattu: lukee `config_store.config.notifications.sound_family`/`sound_alert` konfiguraatiosta.
+- **Settings - DND YAML formaatti:** `dnd_end: 06:00` ilman hipsuja → YAML 1.1 parsii sexagesimaalilukuna. Korjattu: custom PyYAML representer string-kvotoinnille.
+- **Settings - Home WiFi UX:** SSID-syöttö vaati tab-navigoinnin tallentaakseen. Korjattu: list-view (Listbox + Add/Delete + Enter binding), kuten kamerafeedeissä.
+- **Settings - API Server config:** Daemon ei reagoinut web-asetusten muutoksiin. Korjattu: `ConfigStore.on_change()` callback-mekanismi.
+
+### Infra
+
+- **ConfigStore:** `on_change(section, callback)` — section-spesifiset callbackit set()-kutsulle
+- **ConfigStore._persist():** YAML string representer kvotoi arvot joissa kaksoispiste (välttää YAML 1.1 sexagesimaaliparsinnan)
+
+### Tests
+
+- **24 unit testiä** mappingille (test_config_mapping.py)
+- **9 uutta integraatiotestiä** (test_config_integration.py): YAML round-trip, DND kvotointi, on_change callbacks, daemon.test_notify sound config
+- Kaikki 33 testiä PASS
+
 ## [5.3.1] — 2026-05-18
 
 ### Fixed

@@ -220,6 +220,7 @@ class ConfigStore:
         self._lock = threading.RLock()
         self._config: Config = Config()
         self._callbacks: list = []  # Called on reload: fn(new_config)
+        self._change_callbacks: dict[str, list] = {}  # section → [fn(section, key, value)]
         self._load()
         logger.info(f"ConfigStore initialized: {self._config_path}")
 
@@ -262,6 +263,14 @@ class ConfigStore:
             setattr(section_obj, key, value)
             self._persist()
             logger.info(f"Config updated: {section}.{key} = {value}")
+
+            # Fire change callbacks for this section
+            for cb in self._change_callbacks.get(section, []):
+                try:
+                    cb(section, key, value)
+                except Exception:
+                    logger.exception(f"Change callback failed for {section}.{key}")
+
             return True
 
     def set_section(self, section: str, data: dict) -> bool:
@@ -300,6 +309,10 @@ class ConfigStore:
     def on_reload(self, callback):
         """Register callback(new_config) called after each successful reload."""
         self._callbacks.append(callback)
+
+    def on_change(self, section: str, callback):
+        """Register callback(section, key, value) called after each set() update."""
+        self._change_callbacks.setdefault(section, []).append(callback)
 
     def setup_sighup(self):
         """Register SIGHUP handler for hot-reload."""
@@ -346,6 +359,13 @@ class ConfigStore:
             with open(tmp_path, "w") as f:
                 f.write("# Clairvoyant-Optics v5.0 Configuration\n")
                 f.write(f"# Last modified: {datetime.now().isoformat()}\n\n")
+                # Custom representer: strings that look like sexagesimal numbers or
+                # contain colons must be quoted (prevents YAML 1.1 sexagesimal parsing)
+                def str_representer(dumper, data):
+                    if ":" in data or " " in data or any(c in data for c in "{}[]&*!|>\"'%@`"):
+                        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
+                    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+                yaml.add_representer(str, str_representer)
                 yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
             # Keep one backup

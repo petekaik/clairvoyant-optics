@@ -53,6 +53,28 @@
 | **Odotettu tulos** | `auto_update: true/false` sijaitsee `telemetry:`-sectionin alla, EI YAML-juuressa |
 | **Korjaus** | `_key_to_section()` maps `auto_update`/`error_reporting` → `"telemetry"`. `load_config()` lukee `telemetry`-sektion IPC:stä. |
 
+## EXTRA HAVAINNOT (v5.3.1 — KAIKKI KORJATTU ✅)
+
+### Settings ulkoasu: ✅ FIXED
+### Settings - Notifications - Family Member Sound: ✅ FIXED (IPC key `sound_family`, section `notifications:`)
+### Settings - Notifications - Unknown Person Alert: ✅ FIXED (IPC key `sound_alert`, section `notifications:`)
+### Settings - Notifications - Notify on Family Members: ✅ FIXED (IPC key `notify_on_family`, section `notifications:`)
+### Settings - Notifications - Notify on Unknown Persons: ✅ FIXED (IPC key `notify_on_unknown`, section `notifications:`)
+### Settings - Notifications - DND Schedule Start: ✅ FIXED (IPC key `dnd_start`, section `notifications:`)
+### Settings - Notifications - DND Schedule End: ✅ FIXED (IPC key `dnd_end`, section `notifications:`)
+### Settings - General - Launch at Login: ✅ FIXED (käyttää python daemon.py, ei duplikaattia)
+### Settings - General - API Server Host/Port: ✅ FIXED (`api_host` → section `web`, IPC key `host`)
+### Settings - General - API Server enabled toggle: ✅ FIXED (lisätty Enable API Server toggle)
+### Settings dock-ikoni: ✅ FIXED (icon.icns kopioidaan buildissa oikein)
+
+**Korjaus (v5.3.1):** `_key_to_ipc_key()` explicit mapping (ei prefix-strippausta), `_key_to_section()` täydelliset mappingsit, `save_key()` section-aware YAML fallback, `home_ssids` string↔list coercion, `api_port` string↔int. 24 yksikkötestiä testaa kaikki mappingit.
+
+## EXTRA HAVAINNOT v5.3.1 UAT — KAIKKI KORJATTU v5.3.2 ✅
+
+### Settings - Notifications - Sounds: ✅ FIXED (daemon.test_notify käyttää nyt configista luettua soundia, ei hardkoodattua "default")
+### Settings - Notifications - DND Schedule Start/End: ✅ FIXED (YAML representer kvotoi stringit joissa kaksoispiste — ei enää sexagesimaaliparsintaa)
+### Settings - Advanced - Home WiFi: ✅ FIXED (list-view Add/Delete + Enter binding — tallentuu heti, ei tab-navigointia tarvita)
+### Settings - General - API Server: ✅ FIXED (ConfigStore.on_change callback → web-config muutokset prosessoidaan)
 ---
 
 ## Visuaalinen validointi

@@ -185,20 +185,25 @@ def _build_ipc_methods(config_store: ConfigStore, orchestrator: Orchestrator) ->
         return {"ok": True, "version": VERSION}
 
     def test_notify(params: dict) -> dict:
-        """Send a test notification through the notification bus."""
+        """Send a test notification — reads configured sound from config."""
         title = params.get("title", "Test")
         subtitle = params.get("subtitle", "")
         message = params.get("message", "Test notification")
+        # Read configured sound from current config
+        cfg = config_store.config
+        sound_key = params.get("sound_key", "sound_family")
+        sound_name = "default"
+        if cfg.notifications:
+            sound_name = getattr(cfg.notifications, sound_key, "default") or "default"
         try:
-            # Use macOS notifier directly via subprocess (no rumps dependency in daemon)
             import subprocess
-            script = f'display notification "{message}" with title "{title}" subtitle "{subtitle}" sound name "default"'
+            script = f'display notification "{message}" with title "{title}" subtitle "{subtitle}" sound name "{sound_name}"'
             subprocess.run(
                 ["osascript", "-e", script],
                 timeout=3, check=False, capture_output=True,
             )
-            logger.info(f"Test notification sent: {title}")
-            return {"ok": True, "message": "Notification sent"}
+            logger.info(f"Test notification sent: {title} (sound={sound_name})")
+            return {"ok": True, "message": f"Notification sent with sound '{sound_name}'"}
         except Exception as e:
             logger.warning(f"Test notification failed: {e}")
             return {"ok": False, "error": str(e)}
