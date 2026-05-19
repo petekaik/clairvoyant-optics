@@ -669,17 +669,19 @@ class SettingsWindow:
             self._pages[tab_id] = (scrollable, canvas, scrollbar)
 
     def _show_content(self, tab_id: str) -> None:
-        # Hide all
+        # Hide all canvases — scrollable frames are inside canvas windows
         for _, tab_data in self._pages.items():
             scrollable, canvas, scrollbar = tab_data
-            scrollable.pack_forget()
             canvas.pack_forget()
             scrollbar.pack_forget()
         scrollable, canvas, scrollbar = self._pages[tab_id]
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        scrollable.pack(fill="both", expand=True)
         _clear_frame(scrollable)
+        # Force canvas window to fill available width
+        canvas.update_idletasks()
+        if canvas.find_all():
+            canvas.itemconfig(canvas.find_all()[0], width=canvas.winfo_width() or 400)
         getattr(self, f"_build_{tab_id}")(scrollable)
         # Refresh content for specific tabs
         if tab_id == "general" or tab_id == "advanced":
@@ -692,7 +694,6 @@ class SettingsWindow:
             self._refresh_faces()
         # Force paint
         self._root.update_idletasks()
-        self._root.update()
 
     # ── tab: General ────────────────────────────────────────────────────
 
@@ -1365,17 +1366,19 @@ class SettingsWindow:
                     return
 
     def _download_model(self, model_name: str) -> None:
-        """Download a specific model: try IPC, fallback to direct download."""
-        try:
-            self._model_status_labels[model_name].set("Downloading...")
-            self._set_btn_text(self._model_buttons[model_name], "Downloading")
-            result = _ipc_call("ml.download", {"model": model_name})
-            if result is None:
+        """Download a specific model in background thread."""
+        def _do_download():
+            try:
+                result = _ipc_call("ml.download", {"model": model_name})
+                if result is not None:
+                    # Daemon handles it — just poll for status
+                    self._root.after(0, lambda: self._model_status_labels[model_name].set("Downloading via daemon..."))
+                    return
                 # Daemon offline — download directly
                 url = self.MODEL_URLS.get(model_name)
                 if not url:
-                    self._model_status_labels[model_name].set("Error: no URL")
-                    self._set_btn_text(self._model_buttons[model_name], "Retry")
+                    self._root.after(0, lambda: self._model_status_labels[model_name].set("Error: no URL"))
+                    self._root.after(0, lambda: self._set_btn_text(self._model_buttons[model_name], "Retry"))
                     return
                 import urllib.request, os
                 models_dir = self._models_dir
@@ -1385,14 +1388,21 @@ class SettingsWindow:
                 def _reporthook(b, bs, total):
                     if total > 0:
                         pct = b * bs / total * 100
-                        self._model_status_labels[model_name].set(f"Downloading ({pct:.1f}%)")
+                        self._root.after(0, lambda p=pct: self._model_status_labels[model_name].set(
+                            f"Downloading ({p:.1f}%)"))
                 urllib.request.urlretrieve(url, tmp, reporthook=_reporthook)
                 os.replace(str(tmp), str(dest))
-                self._model_status_labels[model_name].set("Complete " + self._model_version_label(model_name))
-                self._set_btn_text(self._model_buttons[model_name], "Downloaded")
-        except Exception as e:
-            self._model_status_labels[model_name].set(f"Error: {str(e)}")
-            self._set_btn_text(self._model_buttons[model_name], "Retry")
+                self._root.after(0, lambda: self._model_status_labels[model_name].set(
+                    "Complete " + self._model_version_label(model_name)))
+                self._root.after(0, lambda: self._set_btn_text(self._model_buttons[model_name], "Downloaded"))
+            except Exception as e:
+                self._root.after(0, lambda: self._model_status_labels[model_name].set(f"Error: {str(e)}"))
+                self._root.after(0, lambda: self._set_btn_text(self._model_buttons[model_name], "Retry"))
+        import threading
+        t = threading.Thread(target=_do_download, daemon=True)
+        t.start()
+        self._model_status_labels[model_name].set("Starting...")
+        self._set_btn_text(self._model_buttons[model_name], "Downloading")
 
     def _download_all_models(self) -> None:
         """Download all models via IPC."""

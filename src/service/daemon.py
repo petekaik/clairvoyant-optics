@@ -28,19 +28,42 @@ from src.service.orchestrator import Orchestrator
 
 logger = logging.getLogger("clairvoyantd")
 
-VERSION = "5.5.0"
+VERSION = "5.6.1"
 
 
 _web_proc: subprocess.Popen | None = None
 
 
-def _web_start(cfg_store) -> dict:
+# ── WEB SERVER ──────────────────────────────────────────────────────
+
+def _web_release_port(host: str, port: int) -> None:
+    """Kill any process holding the configured port before starting."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f"{host}:{port}"],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.stdout.strip():
+            for pid in result.stdout.strip().split():
+                try:
+                    os.kill(int(pid), signal.SIGTERM)
+                    logger.info(f"Killed stale process on {host}:{port} (PID {pid})")
+                except (OSError, ValueError):
+                    pass
+    except Exception:
+        pass
+
+
+def _web_start(config_store: ConfigStore) -> dict:
+    # Free the port first
+    _web_release_port(config_store.config.web.host, config_store.config.web.port)
+    
     global _web_proc
     if _web_proc and _web_proc.poll() is None:
         return {"result": {"running": True, "message": "already running"}}
-    enabled = cfg_store.config.web.enabled
-    host = cfg_store.config.web.host
-    port = cfg_store.config.web.port
+    enabled = config_store.config.web.enabled
+    host = config_store.config.web.host
+    port = config_store.config.web.port
     script = find_web_dashboard_script()
     if not script:
         return {"error": {"message": "web_dashboard.py not found"}}
