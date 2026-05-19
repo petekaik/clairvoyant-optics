@@ -20,7 +20,7 @@
 
 ## Valmiit (Done)
 
-- ✅ **v5.5.0** — API Server statusindikaattori, Apple HIG -napit, Settings.app ikoni, web_dashboard.py bundlessa
+- ✅ **v5.5.0** — API Server statusindikaattori, Apple HIG -napit, Settings.app ikoni, clairvoyant_web_dashboard.py bundlessa
 - ✅ **v5.4.0** — Web Dashboard hot reload, ConfigStore.on_change, YAML string representer, Home WiFi UX
 - ✅ **v5.3.2** — UAT v5.3.1 4 bugia: Sounds, DND YAML, Home WiFi UX, API Server config
 - ✅ **v5.3.1** — Config mapping fix (11 EXTRA bugs: IPC key mapping, section-aware YAML, type coercion)

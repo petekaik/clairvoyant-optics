@@ -119,7 +119,7 @@ pass "DMG unmountattu"
 RESOURCES="$APP_PATH/Contents/Resources"
 BIN="$APP_PATH/Contents/MacOS"
 
-for file in "eye_22.png" "eye_44.png" "settings.py" "menu_bar.py" "web_dashboard.py"; do
+for file in "eye_22.png" "eye_44.png" "settings.py" "menu_bar.py" "clairvoyant_web_dashboard.py"; do
     if [ -f "$RESOURCES/$file" ]; then
         pass "  $file löytyy bundlesta"
     else

@@ -54,8 +54,8 @@ def _web_release_port(host: str, port: int) -> None:
                     ).stdout.strip().lower()
                     if not cmd:
                         continue
-                    # Match: clairvoyant daemon, web_dashboard, or our python bundle
-                    if "clairvoyant" not in cmd and "web_dashboard.py" not in cmd:
+                    # Match: clairvoyant daemon, clairvoyant_web_dashboard, or our python bundle
+                    if "clairvoyant" not in cmd and "clairvoyant_web_dashboard" not in cmd:
                         continue
                     os.kill(pid, signal.SIGTERM)
                     logger.info(f"Killed stale clairvoyant process on {host}:{port} (PID {pid})")
@@ -77,7 +77,7 @@ def _web_start(config_store: ConfigStore) -> dict:
     port = config_store.config.web.port
     script = find_web_dashboard_script()
     if not script:
-        return {"error": {"message": "web_dashboard.py not found"}}
+        return {"error": {"message": "clairvoyant_web_dashboard.py not found"}}
     try:
         _web_proc = subprocess.Popen(
             [sys.executable, str(script)],
@@ -103,14 +103,14 @@ def _web_stop() -> dict:
 
 
 def find_web_dashboard_script() -> Path | None:
-    # Bundle mode: Resources/lib/python3.11/src/desktop/web_dashboard.py
-    # Dev mode: projektin src/desktop/web_dashboard.py
+    # Bundle mode: Resources/lib/python3.11/src/desktop/clairvoyant_web_dashboard.py
+    # Dev mode: projektin src/desktop/clairvoyant_web_dashboard.py
     candidates = []
     # Bundle mode
     bundle_resources = Path(__file__).resolve().parent.parent.parent / "desktop"
-    candidates.append(bundle_resources / "web_dashboard.py")
+    candidates.append(bundle_resources / "clairvoyant_web_dashboard.py")
     # Development mode
-    candidates.append(Path(__file__).resolve().parent.parent / "desktop" / "web_dashboard.py")
+    candidates.append(Path(__file__).resolve().parent.parent / "desktop" / "clairvoyant_web_dashboard.py")
     for c in candidates:
         if c.exists():
             return c

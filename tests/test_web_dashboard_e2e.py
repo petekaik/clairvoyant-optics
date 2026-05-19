@@ -1,7 +1,7 @@
 """
 Playwright E2E tests for Clairvoyant-Optics web dashboard.
 
-Tests the web UI rendered by web_dashboard.py as a real browser.
+Tests the web UI rendered by clairvoyant_web_dashboard.py as a real browser.
 Works with daemon running (launched in fixture) or against a running daemon.
 
 Requirements: pip install pytest-playwright

@@ -48,8 +48,8 @@ cp -f "assets/eye_44.png" "$RESOURCES/" || { echo "FATAL: cannot copy eye_44.png
 # Copy desktop-layer scripts
 cp -f "src/desktop/settings.py" "$RESOURCES/" || { echo "FATAL: cannot copy settings.py"; exit 1; }
 cp -f "src/desktop/menu_bar.py" "$RESOURCES/" || { echo "FATAL: cannot copy menu_bar.py"; exit 1; }
-cp -f "src/desktop/web_dashboard.py" "$RESOURCES/" || { echo "FATAL: cannot copy web_dashboard.py"; exit 1; }
-echo "   ✅ eye_22.png, eye_44.png, settings.py, menu_bar.py, web_dashboard.py copied"
+cp -f "src/desktop/clairvoyant_web_dashboard.py" "$RESOURCES/" || { echo "FATAL: cannot copy clairvoyant_web_dashboard.py"; exit 1; }
+echo "   ✅ eye_22.png, eye_44.png, settings.py, menu_bar.py, clairvoyant_web_dashboard.py copied"
 
 # ── Create Settings.app wrapper inside Resources ───────────────
 echo "📁 Creating Settings.app wrapper..."

@@ -18,7 +18,7 @@ All notable changes to Clairvoyant-Optics.
 ### Added
 
 - **Config-parien audit** — UI-kentät: log_level, launch_at_login, api_host, api_port, auto_update, error_reporting, pause_on_battery, pause_when_away, cameras, mqtt_broker/port/username/password/topic_prefix/enabled, home_ssids, person_confidence, face_confidence, recognition_threshold, frame_interval, debounce_seconds, notification_dnd_start/end, notification_sound_family/alert, notify_on_family/unknown, battery_poll_interval — kaikki tallentuvat oikeisiin config.yaml sektioihin.
-- **Version parity** — settings.py, version.py, web_dashboard.py kaikki 5.6.1.
+- **Version parity** — settings.py, version.py, clairvoyant_web_dashboard.py kaikki 5.6.1.
 
 ## [5.6.0] — 2026-05-19
 
@@ -48,7 +48,7 @@ All notable changes to Clairvoyant-Optics.
 ## [5.4.1] — 2026-05-19
 
 ### Fixed
-- Web Dashboard ei käynnistynyt DMG:ssä (web_dashboard.py puuttui bundlesta)
+- Web Dashboard ei käynnistynyt DMG:ssä (clairvoyant_web_dashboard.py puuttui bundlesta)
 - Settings.app dockissa valkoinen ikoni (CFBundleIconFile + icon.icns kopio)
 - API Server -statusindikaattori ja Start/Stop/Restart-napit Settings → Generaliin
 - Web-serverin hallinta siirretty daemonille (ei enää menu_bar subprocess)
@@ -57,14 +57,14 @@ All notable changes to Clairvoyant-Optics.
 
 ### Added
 
-- **Web Dashboard hot reload** — `web_dashboard.py main()` lukee nyt `config.yaml`:n web.host, web.port, web.enabled. `menu_bar.py` monitoroi web-config-muutoksia poll-loopissa ja restartaa web-serverin automaattisesti.
+- **Web Dashboard hot reload** — `clairvoyant_web_dashboard.py main()` lukee nyt `config.yaml`:n web.host, web.port, web.enabled. `menu_bar.py` monitoroi web-config-muutoksia poll-loopissa ja restartaa web-serverin automaattisesti.
 - **ConfigStore.on_change callback** — Section-spesifinen callback `set()`-kutsulle. Varmistaa, että daemon ja menu_bar reagoivat web-asetusten muutoksiin.
 
 ### Fixed
 
-- **Web Dashboard portti ignoorasi config.yaml:n** — `web_dashboard.py` hardkoodasi port 8765. Korjattu: lukee `web.host`/`web.port`/`web.enabled` config.yaml:stä.
+- **Web Dashboard portti ignoorasi config.yaml:n** — clairvoyant_web_dashboard.py hardkoodasi port 8765. Korjattu: lukee `web.host`/`web.port`/`web.enabled` config.yaml:stä.
 - **menu_bar.py ei restartannut web serveriä config-muutoksilla** — Korjattu: poll-loop monitoroi web configia, restartaa prosessin muutoksilla.
-- **Web Dashboard ei käynnistynyt (exit ennen serveriä)** — `web_dashboard.py` luki `enabled: false` configista → exit heti. Korjattu: enabled hoidetaan menu_bar-tasolla, web_dashboard aina käynnistyy.
+- **Web Dashboard ei käynnistynyt (exit ennen serveriä)** — clairvoyant_web_dashboard.py luki `enabled: false` configista → exit heti. Korjattu: enabled hoidetaan menu_bar-tasolla, web_dashboard aina käynnistyy.
 - **load_config() ei mäpännyt notification-kenttiä oikein** — Daemonin `dnd_start`/`dnd_end`/`sound_family`/`sound_alert` jäivät mappautumatta settings UI:n `notification_*`-avaimille. Korjattu: silmukan sisäinen reverse-map notification-sektiolle.
 - **DND-time entry puuttui validointi** — Nyt `_labeled_time_entry` hh:mm-regexillä (punainen reunus virheellä), auto-save FocusOut/Return kuten muissa syöttökentissä.
 - **_labeled_entry duplikaatti poistettu** — Korvattu `_labeled_time_entry`:llä, vanha `_labeled_entry`-metodi poistettu.

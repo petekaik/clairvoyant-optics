@@ -4,7 +4,7 @@ Usage: python setup.py py2app
 
 Main app: src/desktop/menu_bar.py (rumps menu bar app, LSUIElement=True = no Dock icon).
 Service-oriented: IPC client ↔ clairvoyantd daemon architecture.
-Web dashboard: src/desktop/web_dashboard.py (stdlib http.server).
+Web dashboard: src/desktop/clairvoyant_web_dashboard.py (stdlib http.server).
 Settings window: src/desktop/settings.py (Apple HIG, toolbar, dark mode, IPC+YAML).
 """
 

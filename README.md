@@ -7,7 +7,7 @@ Cameras ──→ clairvoyantd (daemon) ──→ macOS Notifications
                  │    IPC socket
                  ├── menu_bar.py (rumps, menu bar icon)
                  ├── settings.py (Apple HIG toolbar window)
-                 └── web_dashboard.py (http://127.0.0.1:8765)
+                 └── clairvoyant_web_dashboard.py (http://127.0.0.1:8765)
 ```
 
 ## Architecture (v5 — service-oriented)
@@ -19,7 +19,7 @@ v5 splits the monolith into a three-layer IPC architecture:
 | **Service** | `clairvoyantd` (daemon) | ML pipeline, camera I/O, config store, IPC server |
 | **Desktop** | `menu_bar.py` (rumps) | Menu bar icon, quick start/stop, IPC client |
 | **Desktop** | `settings.py` (tkinter) | Apple HIG settings window, launched via `Settings.app` wrapper |
-| **Desktop** | `web_dashboard.py` (stdlib) | HTTP dashboard at `http://127.0.0.1:8765`, IPC client |
+| **Desktop** | `clairvoyant_web_dashboard.py` (stdlib) | HTTP dashboard at `http://127.0.0.1:8765`, IPC client |
 
 Communication: Unix domain socket at `~/.clairvoyant-optics/ipc.sock`, newline-delimited JSON.
 
@@ -137,7 +137,7 @@ src/
 ├── desktop/                # GUI layer (bundled into .app Resources)
 │   ├── menu_bar.py         # rumps menu bar app, IPC client
 │   ├── settings.py         # Apple HIG settings window (tkinter)
-│   ├── web_dashboard.py    # stdlib HTTP dashboard, IPC client
+│   ├── clairvoyant_web_dashboard.py    # stdlib HTTP dashboard, IPC client
 │   └── ipc_client.py       # Shared Unix socket IPC client
 ├── service/                # Daemon layer (clairvoyantd)
 │   ├── daemon.py           # Entry point, signal handlers
@@ -205,7 +205,7 @@ Full User Acceptance Testing spec in [UAT.md](UAT.md). 20 test cases, 8 fully au
 | **5.3.0** | Auto-Update / Error Reporting config persistence fix; build-dmg.sh cleanup (version-scoped DMG_RW, clean DMG_BUILD) |
 | **5.2.0** | LaunchAgent automation (load/unload), Test Notification/Alert buttons in Advanced tab, API Host/Port persistence, bundling fixes |
 | **5.1.0** | Dark mode (native macOS), camera name save fix, thread-safe theme switch, icon consistency |
-| **5.0.0** | Service-oriented architecture: daemon + IPC + rumps menu bar, settings.py (tkinter), web_dashboard.py (stdlib), LaunchAgent |
+| **5.0.0** | Service-oriented architecture: daemon + IPC + rumps menu bar, settings.py (tkinter), clairvoyant_web_dashboard.py (stdlib), LaunchAgent |
 
 ## Performance (MacBook Air M1, 8 GB)
 
