@@ -2,6 +2,24 @@
 
 All notable changes to Clairvoyant-Optics.
 
+## [5.6.1] — 2026-05-19
+
+### Fixed
+
+- **Faces-tabi tyhjä** — _build_faces kutsui `section_header`+`_section` erikseen, jolloin Faces-otsikko jäi renderöimättä canvas-scrollableen. Korjattu: käytetään `_section(parent, "title")` jossa otsikko sisäänrakennettuna.
+- **Canvas 0-leveys** — `canvas.create_window(width=canvas.winfo_reqwidth())` palautti 0 ennen packausta. Korjattu: width poistettu (ankkuri="nw" + canvasin resize-eventti venyttää).
+- **Advanced duplikaatit** — Pause When on Battery ja Pause When Away from Home olivat sekä Advanced-osion alussa että Battery-osion alla. Poistettu Advanced-osion alusta.
+- **Scrollbar puuttui** — Kaikki tabit canvas+scrollbar-pohjaisia. Mousewheel bindaus.
+- **Models download ei toiminut** — `_ipc_call("ml.download")` palauttaa None kun daemon offline. Korjattu: fallback suoraan urllib.request.urlretrieve.
+- **Models status jäätyi** — `_refresh_ml_status` kutsuttiin kerran, ei pollannut. Korjattu: säännöllinen after()-pollaus, nopeampi active downloadien aikana.
+- **Model-versiotieto** — `MODEL_VERSIONS` dict (v8.0, v1.0, v1.0), näkyy statuksessa "Complete (v8.0)".
+- **Automaattilataus** — `_auto_download_missing()` katsastaa _build_models lopussa ja lataa puuttuvat.
+
+### Added
+
+- **Config-parien audit** — UI-kentät: log_level, launch_at_login, api_host, api_port, auto_update, error_reporting, pause_on_battery, pause_when_away, cameras, mqtt_broker/port/username/password/topic_prefix/enabled, home_ssids, person_confidence, face_confidence, recognition_threshold, frame_interval, debounce_seconds, notification_dnd_start/end, notification_sound_family/alert, notify_on_family/unknown, battery_poll_interval — kaikki tallentuvat oikeisiin config.yaml sektioihin.
+- **Version parity** — settings.py, version.py, web_dashboard.py kaikki 5.6.1.
+
 ## [5.6.0] — 2026-05-19
 
 ### Added

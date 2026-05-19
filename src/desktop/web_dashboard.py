@@ -20,7 +20,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-VERSION = "5.6.0"
+VERSION = "5.6.1"
 CONFIG_DIR = Path.home() / ".clairvoyant-optics"
 
 # ── IPC client (minimal, avoids src.* imports for standalone bundle compat) ─

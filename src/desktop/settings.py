@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.6.0"
+VERSION = "5.6.1"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -645,16 +645,42 @@ class SettingsWindow:
         self._content_frame.pack(side="left", fill="both", expand=True)
         self._pages: dict[str, tk.Frame] = {}
         for tab_id, _, _ in TABS:
-            page = tk.Frame(self._content_frame, bg=c["window_bg"])
-            self._pages[tab_id] = page
+            # Each tab gets a scrollable canvas
+            canvas = tk.Canvas(self._content_frame, bg=c["window_bg"],
+                               highlightthickness=0)
+            scrollbar = tk.Scrollbar(self._content_frame, orient="vertical",
+                                     command=canvas.yview)
+            scrollable = tk.Frame(canvas, bg=c["window_bg"])
+            scrollable.bind("<Configure>",
+                           lambda e, c=canvas: c.configure(scrollregion=c.bbox("all")))
+            canvas.bind("<Configure>",
+                       lambda e, s=scrollable: canvas.itemconfig(
+                           canvas.find_all()[0] if canvas.find_all() else 0,
+                           width=e.width))
+            canvas.create_window((0, 0), window=scrollable, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
+            # Bind mousewheel
+            def _on_mousewheel(event, c=canvas):
+                c.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            canvas.bind("<Enter>", lambda e, c=canvas: c.bind_all(
+                        "<MouseWheel>", lambda ev, ca=c: ca.yview_scroll(
+                            int(-1 * (ev.delta / 120)), "units")))
+            canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+            self._pages[tab_id] = (scrollable, canvas, scrollbar)
 
     def _show_content(self, tab_id: str) -> None:
-        for page in self._pages.values():
-            page.pack_forget()
-        page = self._pages[tab_id]
-        page.pack(fill="both", expand=True, padx=2, pady=2)
-        _clear_frame(page)
-        getattr(self, f"_build_{tab_id}")(page)
+        # Hide all
+        for _, tab_data in self._pages.items():
+            scrollable, canvas, scrollbar = tab_data
+            scrollable.pack_forget()
+            canvas.pack_forget()
+            scrollbar.pack_forget()
+        scrollable, canvas, scrollbar = self._pages[tab_id]
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        scrollable.pack(fill="both", expand=True)
+        _clear_frame(scrollable)
+        getattr(self, f"_build_{tab_id}")(scrollable)
         # Refresh content for specific tabs
         if tab_id == "general" or tab_id == "advanced":
             self._refresh_web_status()
@@ -664,8 +690,7 @@ class SettingsWindow:
             self._refresh_ml_status()
         elif tab_id == "faces":
             self._refresh_faces()
-        # Force immediate paint — on macOS Sequoia WindowServer defers
-        # widget rendering until next user interaction without this.
+        # Force paint
         self._root.update_idletasks()
         self._root.update()
 
@@ -992,10 +1017,6 @@ class SettingsWindow:
                          "Check for updates every 6 hours", "auto_update")
         self._mac_toggle(sf, "Error Reporting",
                          "Send error reports to GitHub Issues automatically", "error_reporting")
-        self._mac_toggle(sf, "Pause When on Battery",
-                         "Pause recognition on battery power", "pause_on_battery")
-        self._mac_toggle(sf, "Pause When Away from Home",
-                         "Pause when not connected to home WiFi", "pause_when_away")
         
         # ── MQTT Configuration ──────────────────────────────────────────────
         mqtt_sf = self._section(parent, "MQTT")
@@ -1213,6 +1234,43 @@ class SettingsWindow:
 
     # ── tab: Models ─────────────────────────────────────────────────────
 
+    MODEL_VERSIONS = {
+        "yolov8n.onnx": "v8.0",
+        "det_10g.onnx": "v1.0",
+        "w600k_r50.onnx": "v1.0",
+    }
+
+    MODEL_URLS = {
+        "yolov8n.onnx": "https://github.com/petekaik/clairvoyant-optics/releases/download/models-v1/yolov8n.onnx",
+        "det_10g.onnx": "https://github.com/petekaik/clairvoyant-optics/releases/download/models-v1/det_10g.onnx",
+        "w600k_r50.onnx": "https://github.com/petekaik/clairvoyant-optics/releases/download/models-v1/w600k_r50.onnx",
+    }
+
+    @property
+    def _models_dir(self) -> Path:
+        return Path(self._cfg.get("models_dir", "~/.clairvoyant-optics/models")).expanduser()
+
+    def _model_version_label(self, name: str) -> str:
+        return "(v" + self.MODEL_VERSIONS.get(name, "?") + ")"
+
+    def _model_needs_download(self, name: str) -> tuple:
+        """Check if model file exists on disk. Returns (needs_download, version_str)."""
+        ver = self.MODEL_VERSIONS.get(name, "?")
+        model_path = self._models_dir / name
+        if model_path.exists():
+            return False, f"(v{ver})"
+        return True, f"(v{ver})"
+
+    def _auto_download_missing(self) -> None:
+        """Auto-download missing models on first launch."""
+        try:
+            for name in self._model_status_labels:
+                need, _ = self._model_needs_download(name)
+                if need:
+                    self._download_model(name)
+        except Exception:
+            pass
+
     def _build_models(self, parent: tk.Frame) -> None:
         c = self._col
         self._section_header(parent, "Model Download", "Download and manage AI models")
@@ -1307,14 +1365,34 @@ class SettingsWindow:
                     return
 
     def _download_model(self, model_name: str) -> None:
-        """Download a specific model via IPC."""
+        """Download a specific model: try IPC, fallback to direct download."""
         try:
             self._model_status_labels[model_name].set("Downloading...")
             self._set_btn_text(self._model_buttons[model_name], "Downloading")
-            _ipc_call("ml.download", {"model": model_name})
+            result = _ipc_call("ml.download", {"model": model_name})
+            if result is None:
+                # Daemon offline — download directly
+                url = self.MODEL_URLS.get(model_name)
+                if not url:
+                    self._model_status_labels[model_name].set("Error: no URL")
+                    self._set_btn_text(self._model_buttons[model_name], "Retry")
+                    return
+                import urllib.request, os
+                models_dir = self._models_dir
+                models_dir.mkdir(parents=True, exist_ok=True)
+                dest = models_dir / model_name
+                tmp = dest.with_suffix(".part")
+                def _reporthook(b, bs, total):
+                    if total > 0:
+                        pct = b * bs / total * 100
+                        self._model_status_labels[model_name].set(f"Downloading ({pct:.1f}%)")
+                urllib.request.urlretrieve(url, tmp, reporthook=_reporthook)
+                os.replace(str(tmp), str(dest))
+                self._model_status_labels[model_name].set("Complete " + self._model_version_label(model_name))
+                self._set_btn_text(self._model_buttons[model_name], "Downloaded")
         except Exception as e:
             self._model_status_labels[model_name].set(f"Error: {str(e)}")
-            self._set_btn_text(self._model_buttons[model_name], "Download")
+            self._set_btn_text(self._model_buttons[model_name], "Retry")
 
     def _download_all_models(self) -> None:
         """Download all models via IPC."""
@@ -1326,40 +1404,59 @@ class SettingsWindow:
         except Exception as e:
             pass
 
+        # Start a periodic poll for model download progress
+        self._root.after(500, self._auto_download_missing)
+        self._root.after(2000, self._refresh_ml_status)
+        self._ml_poll_id = None
+
     def _refresh_ml_status(self) -> None:
         """Refresh model download status from daemon."""
         try:
             result = _ipc_call("ml.status")
             if not result or not isinstance(result, dict):
+                self._ml_poll_id = self._root.after(3000, self._refresh_ml_status)
                 return
             progress = result.get("progress", {})
             loaded = result.get("loaded", {})
+            has_active_downloads = False
             for model_name in self._model_status_labels:
                 if model_name in progress:
                     p = progress[model_name]
                     if p == "complete":
-                        self._model_status_labels[model_name].set("Complete")
+                        self._model_status_labels[model_name].set("Complete " + self._model_version_label(model_name))
                         self._set_btn_text(self._model_buttons[model_name], "Downloaded")
                     elif isinstance(p, (int, float)) and p >= 0:
+                        has_active_downloads = True
                         self._model_status_labels[model_name].set(f"Downloading ({p:.1f}%)")
                         self._set_btn_text(self._model_buttons[model_name], "Downloading")
                     else:
+                        need, ver = self._model_needs_download(model_name)
+                        if need:
+                            self._model_status_labels[model_name].set("Not Downloaded")
+                            self._set_btn_text(self._model_buttons[model_name], "Download")
+                        else:
+                            self._model_status_labels[model_name].set("Complete " + ver)
+                            self._set_btn_text(self._model_buttons[model_name], "Downloaded")
+                else:
+                    need, ver = self._model_needs_download(model_name)
+                    if need:
                         self._model_status_labels[model_name].set("Not Downloaded")
                         self._set_btn_text(self._model_buttons[model_name], "Download")
-                else:
-                    self._model_status_labels[model_name].set("Not Downloaded")
-                    self._set_btn_text(self._model_buttons[model_name], "Download")
+                    else:
+                        self._model_status_labels[model_name].set("Complete " + ver)
+                        self._set_btn_text(self._model_buttons[model_name], "Downloaded")
+            # Poll faster if active downloads, slower otherwise
+            delay = 1000 if has_active_downloads else 5000
+            self._ml_poll_id = self._root.after(delay, self._refresh_ml_status)
         except Exception:
-            pass
+            self._ml_poll_id = self._root.after(5000, self._refresh_ml_status)
 
     # ── tab: Faces ──────────────────────────────────────────────────────
 
     def _build_faces(self, parent: tk.Frame) -> None:
         c = self._col
-        self._section_header(parent, "Registered Faces", "Manage enrolled faces for recognition")
-        
         # Faces list section
-        faces_sf = self._section(parent)
+        faces_sf = self._section(parent, "Registered Faces")
         
         # Header row
         header = tk.Frame(faces_sf, bg=c["window_bg"])
@@ -1378,8 +1475,7 @@ class SettingsWindow:
         self._faces_list_frame.pack(fill="both", expand=True, pady=(0, 10))
         
         # Enroll new face section
-        self._section_header(parent, "Enroll New Face", "Add a new face to recognize", pad_top=24)
-        enroll_sf = self._section(parent)
+        enroll_sf = self._section(parent, "Enroll New Face")
         
         # Name entry
         self._face_name_var = tk.StringVar()
