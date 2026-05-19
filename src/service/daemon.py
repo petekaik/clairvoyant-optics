@@ -37,7 +37,7 @@ _web_proc: subprocess.Popen | None = None
 # ── WEB SERVER ──────────────────────────────────────────────────────
 
 def _web_release_port(host: str, port: int) -> None:
-    """Kill any process holding the configured port before starting."""
+    """Kill only our own stale web dashboard processes holding the port."""
     try:
         result = subprocess.run(
             ["lsof", "-ti", f"{host}:{port}"],
@@ -46,8 +46,19 @@ def _web_release_port(host: str, port: int) -> None:
         if result.stdout.strip():
             for pid in result.stdout.strip().split():
                 try:
-                    os.kill(int(pid), signal.SIGTERM)
-                    logger.info(f"Killed stale process on {host}:{port} (PID {pid})")
+                    pid = int(pid)
+                    # Only kill processes that are ours
+                    cmd = subprocess.run(
+                        ["ps", "-p", str(pid), "-o", "command="],
+                        capture_output=True, text=True, timeout=2
+                    ).stdout.strip().lower()
+                    if not cmd:
+                        continue
+                    # Match: clairvoyant daemon, web_dashboard, or our python bundle
+                    if "clairvoyant" not in cmd and "web_dashboard.py" not in cmd:
+                        continue
+                    os.kill(pid, signal.SIGTERM)
+                    logger.info(f"Killed stale clairvoyant process on {host}:{port} (PID {pid})")
                 except (OSError, ValueError):
                     pass
     except Exception:
