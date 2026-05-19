@@ -63,7 +63,7 @@ APP="dist/Clairvoyant-Optics.app"
 RESOURCES="$APP/Contents/Resources"
 cp -fv assets/eye_22.png "$RESOURCES/"
 cp -fv assets/eye_44.png "$RESOURCES/"  
-cp -fv src/macos/settings.py "$RESOURCES/"
+cp -fv src/macos/clairvoyant_macos_settings.py "$RESOURCES/"
 # VERIFY:
 ls -la "$RESOURCES/eye_22.png"
 ls -la "$RESOURCES/eye_44.png"
@@ -211,7 +211,7 @@ If `eye_22.png` or `settings.py` aren't in Resources after build:
 ```bash
 cp -f "assets/eye_22.png" "$RESOURCES/" || { echo "FATAL: cannot copy eye_22.png"; exit 1; }
 cp -f "assets/eye_44.png" "$RESOURCES/" || { echo "FATAL: cannot copy eye_44.png"; exit 1; }
-cp -f "src/macos/settings.py" "$RESOURCES/" || { echo "FATAL: cannot copy settings.py"; exit 1; }
+cp -f "src/macos/clairvoyant_macos_settings.py" "$RESOURCES/" || { echo "FATAL: cannot copy settings.py"; exit 1; }
 ```
 
 ### Fix B: settings.py crashes on import (tkinter/Cocoa)
@@ -245,7 +245,7 @@ Check if settings.py has bundle-aware path logic (it reads CONFIG_DIR from `Path
 ```bash
 # Send to Nex while you build:
 openclaw agent --local -m '
-Analyze ~/projects/Clairvoyant-Optics/src/macos/settings.py (717 lines).
+Analyze ~/projects/Clairvoyant-Optics/src/macos/clairvoyant_macos_settings.py (717 lines).
 Find ALL potential failure points that could prevent the tkinter window from rendering:
 1. Import errors (modules that might not exist in bundle)
 2. File path assumptions (anything besides CONFIG_DIR that uses relative paths)

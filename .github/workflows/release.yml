@@ -56,7 +56,7 @@ jobs:
           RESOURCES="$APP/Contents/Resources"
           cp -f assets/eye_22.png "$RESOURCES/" || { echo "FATAL: cannot copy eye_22.png"; exit 1; }
           cp -f assets/eye_44.png "$RESOURCES/" || { echo "FATAL: cannot copy eye_44.png"; exit 1; }
-          cp -f src/desktop/web_dashboard.py "$RESOURCES/" || { echo "FATAL: cannot copy web_dashboard.py"; exit 1; }
+          cp -f src/desktop/clairvoyant_web_dashboard.py "$RESOURCES/" || { echo "FATAL: cannot copy clairvoyant_web_dashboard.py"; exit 1; }
           cp -f src/desktop/settings.py "$RESOURCES/" || { echo "FATAL: cannot copy settings.py"; exit 1; }
           cp -f src/desktop/menu_bar.py "$RESOURCES/" || { echo "FATAL: cannot copy menu_bar.py"; exit 1; }
           ls -la "$RESOURCES/eye_22.png" "$RESOURCES/eye_44.png" "$RESOURCES/settings.py"
