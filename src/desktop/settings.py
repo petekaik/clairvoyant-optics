@@ -605,26 +605,22 @@ class SettingsWindow:
         sep = tk.Frame(self._toolbar, bg=c["separator"], height=1)
         sep.pack(fill="x", padx=14, pady=(10, 4))
 
-        self._tab_buttons: dict[str, tk.Frame] = {}
+        self._tab_buttons: dict[str, tk.Button] = {}
         for tab_id, label, icon in TABS:
-            btn = tk.Frame(self._toolbar, bg=c["toolbar_bg"],
-                           padx=12, pady=6, cursor="hand2")
+            btn = tk.Button(self._toolbar, text=f"{icon}  {label}",
+                           font=("SF Pro Text", 12),
+                           bg=c["toolbar_bg"], fg=c["label_secondary"],
+                           activebackground=c["toolbar_hover"],
+                           activeforeground=c["label_primary"],
+                           relief="flat", bd=0,
+                           anchor="w", padx=16, pady=6,
+                           cursor="hand2",
+                           command=lambda tid=tab_id: self._select_tab(tid))
             btn.pack(fill="x")
-            icon_lbl = tk.Label(btn, text=icon, font=("SF Pro Text", 14),
-                                bg=c["toolbar_bg"], fg=c["label_secondary"])
-            icon_lbl.pack(side="left", padx=(4, 8))
-            text_lbl = tk.Label(btn, text=label,
-                                font=("SF Pro Text", 12),
-                                bg=c["toolbar_bg"], fg=c["label_secondary"])
-            text_lbl.pack(side="left")
-            for w in (btn, icon_lbl, text_lbl):
-                w.bind("<Button-1>", lambda e, tid=tab_id: self._select_tab(tid))
-                w.bind("<Enter>", lambda e, f=btn: f.configure(bg=c["toolbar_hover"]))
-                w.bind("<Leave>", lambda e, f=btn, tid=tab_id:
-                       f.configure(bg=c["toolbar_selected"] if self._active_tab == tid else c["toolbar_bg"]))
+            btn.bind("<Enter>", lambda e, b=btn, c=c: b.configure(bg=c["toolbar_hover"]))
+            btn.bind("<Leave>", lambda e, b=btn, tid=tab_id, c=c:
+                    b.configure(bg=c["toolbar_selected"] if self._active_tab == tid else c["toolbar_bg"]))
             self._tab_buttons[tab_id] = btn
-            btn._icon = icon_lbl
-            btn._text = text_lbl
 
         bot = tk.Frame(self._toolbar, bg=c["toolbar_bg"])
         bot.pack(side="bottom", fill="x", pady=12)
@@ -636,11 +632,8 @@ class SettingsWindow:
         self._active_tab = tab_id
         for tid, btn in self._tab_buttons.items():
             active = tid == tab_id
-            btn.configure(bg=c["toolbar_selected"] if active else c["toolbar_bg"])
-            btn._icon.configure(bg=btn["bg"],
-                                fg=c["label_primary"] if active else c["label_secondary"])
-            btn._text.configure(bg=btn["bg"],
-                                fg=c["label_primary"] if active else c["label_secondary"])
+            btn.configure(bg=c["toolbar_selected"] if active else c["toolbar_bg"],
+                          fg=c["label_primary"] if active else c["label_secondary"])
         self._show_content(tab_id)
 
     # ── content area ────────────────────────────────────────────────────
