@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clairvoyant-optics"
-version = "5.6.1"
+version = "5.6.2"
 description = "Privacy-first facial recognition for macOS — your digital eye for surveillance cameras"
 requires-python = ">=3.10"
 license = {text = "Proprietary"}

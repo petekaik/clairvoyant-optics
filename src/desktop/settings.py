@@ -22,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
-VERSION = "5.6.1"
+VERSION = "5.6.2"
 
 # ── paths ──────────────────────────────────────────────────────────────
 
@@ -620,7 +620,7 @@ class SettingsWindow:
             if content_width < 50:
                 # Before window is mapped: use 400 (matches create_window default)
                 content_width = 400
-            canvas.itemconfig(cw_id, width=content_width, height=10)
+            canvas.itemconfig(cw_id, width=content_width)
         except Exception:
             pass
         getattr(self, f"_build_{tab_id}")(scrollable)

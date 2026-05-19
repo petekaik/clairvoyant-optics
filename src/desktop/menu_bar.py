@@ -25,7 +25,7 @@ except ImportError:
 try:
     from src.version import VERSION
 except ImportError:
-    VERSION = "5.4.1"
+    VERSION = "5.6.2"
 
 # ── Paths ──────────────────────────────────────────────────────────────
 
@@ -177,6 +177,17 @@ class ClairvoyantApp(rumps.App):
         if self._polling:
             return
         self._polling = True
+
+        # Auto-start web dashboard if enabled in config
+        try:
+            cfg = self._ipc.call("config.get", {"section": "web"}, timeout=3)
+            if "result" in cfg:
+                web_cfg = cfg["result"]
+                if web_cfg.get("enabled", True):
+                    self._ipc.call("web_start", timeout=3)
+        except Exception:
+            pass
+
         self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._poll_thread.start()
 
@@ -226,7 +237,8 @@ class ClairvoyantApp(rumps.App):
         self._status_item.title = f"{emoji} {state.title()}"
 
         # Camera submenu
-        self._cameras_menu.clear()
+        if self._cameras_menu._menu is not None:
+            self._cameras_menu.clear()
         if cameras:
             for name, cs in cameras.items():
                 icon = "✅" if cs.get("connected") else "⚠"

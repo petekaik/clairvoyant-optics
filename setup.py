@@ -24,6 +24,7 @@ DATA_FILES = []
 OPTIONS = {
     "argv_emulation": False,
     "packages": [
+        "src",
         "rumps",
         "yaml",
         "tkinter",

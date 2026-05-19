@@ -82,7 +82,7 @@ telemetry:
   error_reporting: false
 
 web:
-  enabled: false
+  enabled: true
   host: 127.0.0.1
   port: 8765
 """
