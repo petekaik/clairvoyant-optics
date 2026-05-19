@@ -74,7 +74,7 @@ def _get_ipc():
             _ipc = None
     return _ipc
 
-def _ipc_call(method: str, params: dict | None = None, timeout: float = 5.0) -> dict | None:
+def _ipc_call(method: str, params: dict | None = None, timeout: float = 1.5) -> dict | None:
     ipc = _get_ipc()
     if ipc is None or not ipc.connected:
         return None
@@ -373,7 +373,14 @@ class SettingsWindow:
         self._root.configure(bg=self._col["window_bg"])
 
     def _setup_dark_mode_notification(self) -> None:
-        """Listen for system dark/light mode changes while Settings is open."""
+        """Schedule dark mode observer init after startup (lazy, ~3s).
+        
+        PyObjC Foundation import takes 2-3s; defer so the window opens first.
+        """
+        self._root.after(2000, self._init_dark_mode_observer)
+    
+    def _init_dark_mode_observer(self) -> None:
+        """Lazy-init the ObjC dark mode listener (runs after window is open)."""
         try:
             from Foundation import (
                 NSDistributedNotificationCenter,
@@ -383,7 +390,6 @@ class SettingsWindow:
             class DarkModeObserver(NSObject):
                 def onThemeChanged_(self, notification):
                     self._callback()
-
             observer = DarkModeObserver.alloc().init()
             observer._callback = self._on_system_theme_changed
             center = NSDistributedNotificationCenter.defaultCenter()
@@ -393,7 +399,7 @@ class SettingsWindow:
                 "AppleInterfaceThemeChangedNotification",
                 None,
             )
-            self._dm_observer = observer  # keep alive
+            self._dm_observer = observer
         except Exception:
             self._dm_observer = None
 
@@ -606,11 +612,15 @@ class SettingsWindow:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         _clear_frame(scrollable)
-        # After clear_frame the scrollable is empty — force its canvas window
-        # to full width BEFORE building content so widgets aren't clipped
-        canvas.update_idletasks()
+        # Force the canvas window to the layout-allocated content width
+        # canvas.winfo_width() can return 1 before the window is mapped on macOS Tk 8.6;
+        # use _content_frame or _root geometry instead.
         try:
-            canvas.itemconfig(cw_id, width=canvas.winfo_width() or 400, height=10)
+            content_width = self._content_frame.winfo_width()
+            if content_width < 50:
+                # Before window is mapped: use 400 (matches create_window default)
+                content_width = 400
+            canvas.itemconfig(cw_id, width=content_width, height=10)
         except Exception:
             pass
         getattr(self, f"_build_{tab_id}")(scrollable)

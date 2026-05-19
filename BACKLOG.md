@@ -1,16 +1,6 @@
 # BACKLOG
 
-## v5.6.0 — Current (2026-05-19)
-
-- ✅ **Camera Manager (OpenCV HLS)** — `camera_manager.py` korvattu oikealla toteutuksella. Hoitaa HLSStreamReader-instanssit, snapshotit JPEG:nä, monitoroi kameroita 5s välein.
-- ✅ **ML Manager (YOLOv8+InsightFace)** — `ml_manager.py` korvattu oikealla toteutuksella. Lazy-load mallit ensimmäisellä pipeline startilla. Taustalataus GitHubista (yolov8n.onnx 6MB, det_10g.onnx 17MB, w600k_r50.onnx 163MB). Latauksen edistyminen raportoitavissa IPC:n kautta.
-- ✅ **Model download UI** — Uusi Models-tabi Settingsissa: lataustila (Not Downloaded/Downloading X%/Complete/Error), Download/Download All -napit, detection-asetukset (person_confidence, face_confidence, recognition_threshold, frame_interval, debounce_seconds).
-- ✅ **Face enrollment UI** — Uusi Faces-tabi Settingsissa: rekisteröityjen kasvojen lista (name, camera, samples, last_seen), Delete-nappi, Enroll New Face (name entry + Capture -nappi).
-- ✅ **IPC handlerit daemonille** — `ml.status`, `ml.download`, `ml.download_all`, `faces.list`, `faces.enroll`, `faces.delete`.
-- ✅ **FaceDatabase parannukset** — `get_all_faces()` palauttaa `last_seen`, uusi `delete_face(name)` metodi.
-- ✅ **Puuttuvat config-kentät Settings UI:hun** — log_level dropdown, notify_on_family/notify_on_unknown togglet, MQTT-osio (enabled, broker, port, username, password, topic_prefix), Battery-osio (pause_on_battery, pause_when_away, poll_interval).
-
-## vnext
+## v5.7.0 — Current (2026-05-19)
 
 - **Data-säiliöt** — Tietokantapohjainen eventtihistoria (SQLite), detektioiden ja tunnistusten tallennus historian katseluun
 - **Web dashboard UI-päivitys** — Real-time stream + detektio overlay, per-kamera testipainikkeet
@@ -20,6 +10,8 @@
 
 ## Valmiit (Done)
 
+- ✅ **v5.6.1** — Settings-ikkunan hidas avaus (10-15s → ~0.3s) ja tyhjät tabit korjattu. IPC timeout 5→1.5s, PyObjC lazy 2s init window mapped. Canvas width: _content_frame.winfo_width() guard <50→400 (korvaa rikkinäisen winfo_width() Tk 8.6:lla). Nimeäminen: kaikilla ajettavilla komponenteilla `clairvoyant_`-etuliite. macOS GUI-testit atomacos+pyautogui (3/3 PASS). Playwright E2E web dashboardille (7/7 PASS). 17/17 testiä läpi.
+- ✅ **v5.6.0** — Camera Manager (OpenCV HLS), ML Manager (YOLOv8+InsightFace), Model download UI, Face enrollment UI, IPC handlerit, FaceDatabase parannukset, puuttuvat config-kentät
 - ✅ **v5.5.0** — API Server statusindikaattori, Apple HIG -napit, Settings.app ikoni, clairvoyant_web_dashboard.py bundlessa
 - ✅ **v5.4.0** — Web Dashboard hot reload, ConfigStore.on_change, YAML string representer, Home WiFi UX
 - ✅ **v5.3.2** — UAT v5.3.1 4 bugia: Sounds, DND YAML, Home WiFi UX, API Server config

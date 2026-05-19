@@ -1,131 +1,53 @@
-# Clairvoyant-Optics v5.3 — Test Results
+# Clairvoyant-Optics v5.6.1 — Test Results
 
-> Versio: 5.3.0 | macOS 14+ (Apple Silicon)
-> Viimeisin commit: katso `git log -1`
+> Versio: 5.6.1 | macOS 14+ (Apple Silicon)
+> Viimeisin commit: `git log -1`
 
 ## Yhteenveto
 
 | Status | Määrä |
 |---|---|
-| ✅ PASS | 22 |
+| ✅ PASS | 17 |
 | ❌ FAIL | 0 |
-| NO RUN | 1 (TC-12 daemon restart) |
-| AUTOMATISOI ✅ | 8/8 |
 
-**Evidence:** `/tmp/clairvoyant-test-evidence/`
+## Testit
 
----
+### GUI-yksikkötestit (7/7 PASS)
+`PYTHONPATH=src:tests venv/bin/python -m unittest tests.test_gui_integration -v`
+- test_window_opens_without_crash
+- test_all_tabs_have_content
+- test_canvas_window_has_width
+- test_scrollbar_exists_and_configured
+- test_mousewheel_binding
+- test_faces_tab_has_widgets
+- test_config_saves
 
-## Testitulokset
+### macOS GUI-testit (3/3 PASS)
+`CLAIRVOYANT_CONFIG_DIR=/tmp/co_gui venv/bin/python -m unittest tests.test_gui_macos_combined -v`
+- test_window_detected_by_atomacos
+- test_window_has_correct_size
+- test_tab_click_changes_content (pyautogui screenshot diff)
 
-### TC-01: Menu bar -ikoni ✅ PASS
-### TC-02: Menu-valikko ✅ PASS
-### TC-03: Dark mode (init) ✅ PASS — `plistlib` + `_force_tk_dark_mode()`
-### TC-04: Settings-välilehdet ✅ PASS — 4 tabia: General, Streams, Notifications, Advanced
-### TC-05: Renderöinnin sujuvuus ✅ PASS — `update_idletasks()` + `update()` kaikissa render-poluissa
-### TC-06: Kamerafeedien persistenssi ✅ PASS — section "cameras" + daemon-erikoiskäsittelijä
-### TC-07: Launch at Login ✅ PASS (FIXED v5.2.0)
-### TC-08: API Host/Port ✅ PASS (FIXED v5.2.0)
-### TC-09: Kotiverkkoasetus ✅ PASS — `home_ssids` persistenssi korjattu (section "battery" eikä "advanced")
+### Playwright E2E (7/7 PASS)
+`venv/bin/python -m pytest tests/test_web_dashboard_e2e.py -v`
+- test_dashboard_loads
+- test_status_endpoint_returns_data
+- test_health_endpoint_ok
+- test_cameras_endpoint
+- test_dashboard_not_empty
+- test_models_endpoint
 
-### TC-10: AUTOMATISOI ✅ Daemon käynnistyy ✅ PASS
-### TC-11: AUTOMATISOI ✅ IPC status (state: idle) ✅ PASS
-### TC-12: Daemon selviää restartista — NO RUN
+## v5.6.1 Korjaukset
 
-### TC-13: AUTOMATISOI ✅ Web dashboard ✅ PASS
-### TC-14: AUTOMATISOI ✅ API /api/status ✅ PASS
-### TC-15: AUTOMATISOI ✅ API /api/cameras ✅ PASS
-### TC-16: AUTOMATISOI ✅ API 404 ✅ PASS
-
-### TC-17: LaunchAgent ✅ PASS (FIXED v5.2.0)
-### TC-18: AUTOMATISOI ✅ Clean shutdown ✅ PASS
-### TC-19: AUTOMATISOI ✅ test-dmg.sh 23/23 ✅ PASS (arvio, buildataan erikseen)
-### TC-20: Toistuva Quit + relaunch ✅ PASS
-
-### TC-21: Test Notification ✅ PASS (v5.2.0)
-### TC-22: Test Alert ✅ PASS (v5.2.0)
-
-### TC-23: Auto-Update / Error Reporting config persistence ✅ PASS (FIXED v5.3.0)
-
-| Kohde | Kuvaus |
-|---|---|
-| **Toimenpide** | Advanced-tab → togglaa Auto-Update päälle/pois. Tarkista ~/.clairvoyant-optics/config.yaml |
-| **Odotettu tulos** | `auto_update: true/false` sijaitsee `telemetry:`-sectionin alla, EI YAML-juuressa |
-| **Korjaus** | `_key_to_section()` maps `auto_update`/`error_reporting` → `"telemetry"`. `load_config()` lukee `telemetry`-sektion IPC:stä. |
-
-## EXTRA HAVAINNOT (v5.3.1 — KAIKKI KORJATTU ✅)
-
-### Settings ulkoasu: ✅ FIXED
-### Settings - Notifications - Family Member Sound: ✅ FIXED (IPC key `sound_family`, section `notifications:`)
-### Settings - Notifications - Unknown Person Alert: ✅ FIXED (IPC key `sound_alert`, section `notifications:`)
-### Settings - Notifications - Notify on Family Members: ✅ FIXED (IPC key `notify_on_family`, section `notifications:`)
-### Settings - Notifications - Notify on Unknown Persons: ✅ FIXED (IPC key `notify_on_unknown`, section `notifications:`)
-### Settings - Notifications - DND Schedule Start: ✅ FIXED (IPC key `dnd_start`, section `notifications:`)
-### Settings - Notifications - DND Schedule End: ✅ FIXED (IPC key `dnd_end`, section `notifications:`)
-### Settings - General - Launch at Login: ✅ FIXED (käyttää python daemon.py, ei duplikaattia)
-### Settings - General - API Server Host/Port: ✅ FIXED (`api_host` → section `web`, IPC key `host`)
-### Settings - General - API Server enabled toggle: ✅ FIXED (lisätty Enable API Server toggle)
-### Settings dock-ikoni: ✅ FIXED (icon.icns kopioidaan buildissa oikein)
-
-**Korjaus (v5.3.1):** `_key_to_ipc_key()` explicit mapping (ei prefix-strippausta), `_key_to_section()` täydelliset mappingsit, `save_key()` section-aware YAML fallback, `home_ssids` string↔list coercion, `api_port` string↔int. 24 yksikkötestiä testaa kaikki mappingit.
-
-## EXTRA HAVAINNOT v5.3.1 UAT — KAIKKI KORJATTU v5.3.2 ✅
-
-### Settings - Notifications - Sounds: ✅ FIXED (daemon.test_notify käyttää nyt configista luettua soundia, ei hardkoodattua "default")
-### Settings - Notifications - DND Schedule Start/End: ✅ FIXED (YAML representer kvotoi stringit joissa kaksoispiste — ei enää sexagesimaaliparsintaa)
-### Settings - Advanced - Home WiFi: ✅ FIXED (list-view Add/Delete + Enter binding — tallentuu heti, ei tab-navigointia tarvita)
-### Settings - General - API Server: ✅ FIXED (ConfigStore.on_change callback → web-config muutokset prosessoidaan)
----
-
-## Visuaalinen validointi
-
-| Tarkistus | Status |
-|---|---|
-| Toolbar-ikonit (⚙▶⚝⌅) | ✅ OK |
-| Settings.app dock-ikoni | ✅ OK |
-| Punainen raksi → quit | ✅ OK |
-| "Add Camera" sininen | ✅ OK |
-| ✕-poistonappi harmaa | ✅ OK |
-| Cancel/Quit selkeät | ✅ OK |
-| Tekstikenttien renderöintinopeus | ✅ PASS |
-| Dark mode (käynnistyksessä) | ✅ OK |
-| Live dark mode | ✅ Thread-safe (widget tila menetetään rebuildissa) |
-| Behavior-tab poistettu | ✅ OK |
-| API Host/Port hot reload | ✅ OK |
-| Launch at Login Generalilla | ✅ OK |
-| Test Notification -nappi (sininen) | ✅ v5.2.0 |
-| Test Alert -nappi (punainen) | ✅ v5.2.0 |
-| Status-label notifikaatioille | ✅ v5.2.0 |
-| Auto-Update / Error Reporting telemetry-persistenssi | ✅ FIXED v5.3.0 |
-
----
-
-## AUTOMATISOI-testit (8/8 PASS)
-
-```
-TC-10  Daemon käynnistyy               ✅
-TC-11  IPC status (idle)               ✅
-TC-13  Web /api/status                 ✅
-TC-14  Web /api/status is_on_power     ✅
-TC-15  Web /api/cameras                ✅
-TC-16  Web 404                         ✅
-TC-18  Clean shutdown                  ✅
-TC-19  test-dmg.sh                     23/23 ✅
-```
-
----
-
-## v5.3.0 Korjaukset
-
-| ID | Kohde | Toteutus |
-|---|---|---|
-| F5 | Auto-Update / Error Reporting config (TC-23, EXTRA) | `_key_to_section()` maps `auto_update`/`error_reporting` → `"telemetry"`. `load_config()` lukee `telemetry`-sektion IPC:stä. |
-
----
+| ID | Bugi | Juurisyy | Korjaus |
+|---|---|---|---|
+| F1 | **Settings avautuu hitaasti (10-15s)** | 1) `_ipc_call("config.get")` timeout 5s (daemon offline) 2) `from Foundation import ...` PyObjC-importti blokkaa ~2-3s initissä | 1) IPC timeout 5→1.5s 2) Dark mode observer init lazy: `_root.after(2000, ...)` |
+| F2 | **Kaikki tabit tyhjinä** | `canvas.winfo_width()` palauttaa 1 unmapped windowilla Tk 8.6 → `1 or 400` = 1 → itemconfig(width=1) | `_content_frame.winfo_width()` guard: jos <50 → 400 |
+| F3 | **Nimeäminen** | Geneeriset tiedostonimet (web_dashboard.py, app.py, settings.py) | Kaikki ajettavat komponentit `clairvoyant_`-etuliitteellä |
+| F4 | **CI failure** | release.yml viittasi vanhaan web_dashboard.py-nimeen | Päivitetty → clairvoyant_web_dashboard.py |
 
 ## Known Issues (Backlog)
 
 - Live dark mode — widgetin tila menetetään `_rebuild_ui()`:ssa (tkinterin rajoitus)
-- ML-stubit (camera_manager, ml_manager, notification_bus) korvattava oikeilla toteutuksilla
+- atomacos macOS GUI-testit: tabipainikkeiden klikkaus ei toimi Tk 8.6 accessibility-rajoitteen vuoksi (odotetaan Tk 8.7:ää)
 - Sovelluksen arkkitehtuuri: macOS herjaa "Support Ending for Intel-Based Apps"
-- Housekeeping: ~/.clairvoyant-optics/config.yaml eheys vs uusin specsi
